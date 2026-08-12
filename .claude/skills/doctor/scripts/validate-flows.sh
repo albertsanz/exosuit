@@ -169,6 +169,11 @@ for flow_file in "$SKILLS_DIR"/*/flow.yaml; do
         require)
           [[ "$ntype" != "join" ]] && report FAIL "$skill_name" "node '$id': attribute 'require' is only valid on join nodes (type is $ntype)"
           continue ;;
+        evidence)
+          # evidence markers attach to hard gates only (see FLOW_SPEC ->
+          # Gate Evidence & Enforcement); elsewhere the attr is dead weight.
+          [[ "$ntype" != "gate.hard" ]] && report FAIL "$skill_name" "node '$id': attribute 'evidence' is only valid on gate.hard nodes (type is $ntype)"
+          continue ;;
       esac
       attrs_seen="$attrs_seen $key"
       # Edge-key vocabulary check. step/loop/fanout/join/terminal have a
@@ -190,8 +195,8 @@ for flow_file in "$SKILLS_DIR"/*/flow.yaml; do
           case "$key" in
             oks|okay|failed|faill|fial|defualt|deafult|defaul|nex|nextt|next)
               report WARN "$skill_name" "node '$id': attribute '$key' looks like a typo of a reserved edge key (ok/fail/default) — it will resolve as a named branch" ;;
-            evidence|evidnce|evidense|evdence)
-              report WARN "$skill_name" "node '$id': attribute '$key' — gate evidence is not part of spec 1 (it arrives with the enforcement level); this will resolve as a named branch" ;;
+            evidnce|evidense|evdence)
+              report WARN "$skill_name" "node '$id': attribute '$key' looks like a typo of 'evidence' — it will resolve as a named branch and the gate will carry no evidence" ;;
           esac ;;
       esac
       if [[ "$key" == "next_skill" ]]; then
