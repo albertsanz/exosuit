@@ -233,8 +233,35 @@ start: g
 nodes:
   g: {type: gate.hard, ok: done, fail: done, evidnce: done}
   done: {type: terminal}')"
-evwarn=$( ( cd "$d" && bash "$VALIDATOR" 2>/dev/null || true ) | grep -Ec "gate evidence is not part of spec 1" || true)
+evwarn=$( ( cd "$d" && bash "$VALIDATOR" 2>/dev/null || true ) | grep -Ec "typo of .evidence." || true)
 check "evidence-family key on gate warns" "1" "$evwarn"
+
+# Case 10j: evidence attr on a gate.hard with a stampable marker passes
+d="$(make_fixture alpha 'flow: alpha
+spec: 1
+start: work
+nodes:
+  work: {type: gate.hard, ok: done, fail: STOP, evidence: tests-green, doc: "### Do Work"}
+  done: {type: terminal, doc: "## Done"}')"
+check "evidence on gate.hard with known marker passes" "0" "$(run_validator "$d")"
+
+# Case 10k: evidence with an unstampable marker fails
+d="$(make_fixture alpha 'flow: alpha
+spec: 1
+start: work
+nodes:
+  work: {type: gate.hard, ok: done, fail: STOP, evidence: vibes-good}
+  done: {type: terminal}')"
+check "evidence with unknown marker fails" "1" "$(run_validator "$d")"
+
+# Case 10l: evidence on a non-gate.hard node fails
+d="$(make_fixture alpha 'flow: alpha
+spec: 1
+start: work
+nodes:
+  work: {type: step, next: done, evidence: tests-green}
+  done: {type: terminal}')"
+check "evidence on non-gate node fails" "1" "$(run_validator "$d")"
 
 # Case 11: project with no flow files passes vacuously
 d="$(mktemp -d "$TMP_ROOT/proj.XXXXXX")"
