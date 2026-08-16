@@ -143,6 +143,17 @@ Rules:
   ignores them. Never name new frontmatter keys `skill:`, `phase_name:`, or
   `goal:` — those are parsed by stop.sh, pre-compact.sh, and status-line.sh.
 
+## Generated Views
+
+`bash .claude/skills/doctor/scripts/render-flow.sh --write` generates
+`flow.generated.md` beside each flow.yaml — a mermaid diagram plus a
+grep-friendly edge table, marked GENERATED, byte-deterministic. Never edit
+it; regenerate it. CI runs `render-flow.sh --check`, so a generated view can
+never rot behind its flow.yaml — the drift class that motivated flow
+contracts cannot re-emerge in the generated artifacts. Hand-maintained
+diagrams inside SKILL.md prose are unaffected (reconciling those is #80's
+territory).
+
 ## Authoring a Flow Contract
 
 Transcribe what the prose **actually says today** — a flow contract is a
