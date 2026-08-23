@@ -160,9 +160,40 @@ for flow_file in "$SKILLS_DIR"/*/flow.yaml; do
       val=$(printf '%s' "$pair" | sed -E 's/^ *[a-z_-]+: *//; s/ *$//')
       [[ -z "$key" || -z "$val" ]] && continue
       case "$key" in
-        type|max|require) continue ;;
+        type) continue ;;
+        max)
+          # 'max' is loop-only (FLOW_SPEC attribute table); skipping it
+          # unconditionally let 'max: 5' on any type pass silently.
+          [[ "$ntype" != "loop" ]] && report FAIL "$skill_name" "node '$id': attribute 'max' is only valid on loop nodes (type is $ntype)"
+          continue ;;
+        require)
+          [[ "$ntype" != "join" ]] && report FAIL "$skill_name" "node '$id': attribute 'require' is only valid on join nodes (type is $ntype)"
+          continue ;;
       esac
       attrs_seen="$attrs_seen $key"
+      # Edge-key vocabulary check. step/loop/fanout/join/terminal have a
+      # CLOSED edge vocabulary, so an unrecognised key there is a typo that
+      # would otherwise resolve as a phantom edge (e.g. 'faill: done' silently
+      # replacing the intended decline path). router/gate.* legitimately carry
+      # arbitrary named branches, so those only warn on near-misses of the
+      # reserved words.
+      case "$ntype" in
+        step|join)
+          [[ "$key" != "next" ]] && report FAIL "$skill_name" "node '$id': unknown attribute '$key' (type $ntype allows only: next)" ;;
+        loop)
+          [[ "$key" != "back" && "$key" != "done" ]] && report FAIL "$skill_name" "node '$id': unknown attribute '$key' (type loop allows only: back, done, max)" ;;
+        fanout)
+          [[ "$key" != "to" ]] && report FAIL "$skill_name" "node '$id': unknown attribute '$key' (type fanout allows only: to)" ;;
+        terminal)
+          [[ "$key" != "next_skill" ]] && report FAIL "$skill_name" "node '$id': unknown attribute '$key' (type terminal allows only: next_skill)" ;;
+        router|gate.hard|gate.human)
+          case "$key" in
+            oks|okay|failed|faill|fial|defualt|deafult|defaul|nex|nextt|next)
+              report WARN "$skill_name" "node '$id': attribute '$key' looks like a typo of a reserved edge key (ok/fail/default) — it will resolve as a named branch" ;;
+            evidence|evidnce|evidense|evdence)
+              report WARN "$skill_name" "node '$id': attribute '$key' — gate evidence is not part of spec 1 (it arrives with the enforcement level); this will resolve as a named branch" ;;
+          esac ;;
+      esac
       if [[ "$key" == "next_skill" ]]; then
         # id-shape check first: '..', '.', 'a/b' must not pass the -d test
         if [[ "$val" =~ ^[a-z0-9][a-z0-9-]*$ && -d "$SKILLS_DIR/$val" ]]; then
