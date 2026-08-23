@@ -413,7 +413,7 @@
   },
   {
     "name": "story-cycle",
-    "version": "4.4.0",
+    "version": "4.4.1",
     "description": "Use when the user wants to implement a single story or deliver a backlog item.",
     "trigger": "manual",
     "depends_on": [
