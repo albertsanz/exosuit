@@ -45,6 +45,9 @@ case "$FLOW_MODE" in
     advisory|block) ;;
     *) FLOW_MODE="advisory" ;;
 esac
+# Set by the block branch when its iteration valve releases; appended to
+# the advisory so the release is explicitly announced, never silent.
+VALVE_NOTE=""
 
 # --- Cursor: exists, well-formed, branch-matched ---
 CURSOR=$(sh "$HOOKS_DIR/lib/graph-state.sh" show 2>/dev/null)
@@ -114,19 +117,37 @@ EXPLAIN_MODE="${EXOSUIT_EXPLAIN_MODE:-brief}"
 # patterns cannot read can never wall off edits). Evidence classes with
 # no red analog (test-written) can never block.
 if [ "$FLOW_MODE" = "block" ] && [ "$EVIDENCE" = "tests-green" ] && [ -f "$STATE_DIR/flow/tests-red" ]; then
-    if [ "$EXPLAIN_MODE" = "verbose" ]; then
-        printf 'Flow gate: /%s is at gate '\''%s'\'' which requires evidence '\''%s'\'' — the last observed test run FAILED.\n  WHY: state/flow/tests-red is stamped when a recognized test command demonstrably fails, and revoked by a green run (see FLOW_SPEC.md). Remedy: %s. Set EXOSUIT_FLOW_MODE=advisory to warn instead of block.\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
-    else
-        printf 'Flow gate: /%s at '\''%s'\'' requires evidence '\''%s'\'' and the last observed test run FAILED. Remedy: %s. (EXOSUIT_FLOW_MODE=advisory to warn instead.)\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
+    # Iteration valve (mirrors stop.sh's stop-iteration): after N blocked
+    # edits on the SAME gate with no evidence progress, blocking has
+    # stopped helping — release to advisory with an explicit note. '.'
+    # separates the counter-file fields for the same collision reason as
+    # the .advised- marks. Session-start's state/flow/* clear resets it;
+    # a green run makes this branch unreachable, so no other reset needed.
+    BLOCK_MAX="${EXOSUIT_FLOW_MAX_BLOCKS:-3}"
+    case "$BLOCK_MAX" in ''|*[!0-9]*) BLOCK_MAX=3 ;; esac
+    BLOCKED_MARK="$STATE_DIR/flow/.blocked-$CUR_FLOW.$CUR_NODE.$EVIDENCE"
+    BLOCKED=$(cat "$BLOCKED_MARK" 2>/dev/null | tr -d '[:space:]')
+    case "$BLOCKED" in ''|*[!0-9]*) BLOCKED=0 ;; esac
+    if [ "$BLOCKED" -lt "$BLOCK_MAX" ]; then
+        mkdir -p "$STATE_DIR/flow" 2>/dev/null
+        echo $((BLOCKED + 1)) > "$BLOCKED_MARK" 2>/dev/null
+        if [ "$EXPLAIN_MODE" = "verbose" ]; then
+            printf 'Flow gate: /%s is at gate '\''%s'\'' which requires evidence '\''%s'\'' — the last observed test run FAILED.\n  WHY: state/flow/tests-red is stamped when a recognized test command demonstrably fails, and revoked by a green run (see FLOW_SPEC.md). Remedy: %s. (Block %s of %s, then advisory. Set EXOSUIT_FLOW_MODE=advisory to warn instead of block.)\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" "$((BLOCKED + 1))" "$BLOCK_MAX" >&2
+        else
+            printf 'Flow gate: /%s at '\''%s'\'' requires evidence '\''%s'\'' and the last observed test run FAILED. Remedy: %s. (Block %s of %s, then advisory. EXOSUIT_FLOW_MODE=advisory to warn instead.)\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" "$((BLOCKED + 1))" "$BLOCK_MAX" >&2
+        fi
+        exit 2
     fi
-    exit 2
+    VALVE_NOTE=" [block valve released after $BLOCKED blocked edits — advisory from here; evidence '$EVIDENCE' is still wanted]"
 fi
 # Everything else — block mode without red evidence included — falls
 # through to the advisory below.
 # Advisory: warn ONCE per (flow, node, evidence) — not on every edit.
 # '.' separates the fields ('-' is legal inside kebab ids and would let
-# distinct (flow, node) pairs collide on one marker).
-ADVISED_MARK="$STATE_DIR/flow/.advised-$CUR_FLOW.$CUR_NODE.$EVIDENCE"
+# distinct (flow, node) pairs collide on one marker). A valve release is
+# its own announcement: it uses a distinct mark so the earlier plain
+# advisory can never have deduplicated it away.
+ADVISED_MARK="$STATE_DIR/flow/.advised-$CUR_FLOW.$CUR_NODE.$EVIDENCE${VALVE_NOTE:+.valve}"
 [ -f "$ADVISED_MARK" ] && exit 0
 if [ "$EXPLAIN_MODE" != "off" ]; then
     # PreToolUse stderr on exit 0 reaches the DEBUG LOG ONLY — not the model,
@@ -137,7 +158,7 @@ if [ "$EXPLAIN_MODE" != "off" ]; then
     # auto-approves the very edit it warns about. Omitting the field leaves
     # the normal permission flow untouched; additionalContext and
     # systemMessage are honored independently.
-    ADV_MSG="Flow advisory: /$CUR_FLOW is at gate '$CUR_NODE' — evidence '$EVIDENCE' not yet observed this session. $REMEDY."
+    ADV_MSG="Flow advisory: /$CUR_FLOW is at gate '$CUR_NODE' — evidence '$EVIDENCE' not yet observed this session. $REMEDY.$VALVE_NOTE"
     # Escape for JSON string context (backslash first, then quote; strip CR).
     ADV_JSON=$(printf '%s' "$ADV_MSG" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g')
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"},"systemMessage":"%s"}\n' "$ADV_JSON" "$ADV_JSON"
