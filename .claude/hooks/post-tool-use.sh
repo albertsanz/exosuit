@@ -108,7 +108,13 @@ if [ "$TOOL_NAME" = "Bash" ] && command -v jq >/dev/null 2>&1; then
     # if they contain these common runners)
     TEST_CMD_MATCH=false
     case "$COMMAND" in
-        *pytest*|*"npm test"*|*"npm run test"*|*"cargo test"*|*"go test"*|*jest*|*vitest*|*"dotnet test"*|*rspec*|*"gradle test"*|*"mvn test"*|*"make test"*|*"swift test"*) TEST_CMD_MATCH=true ;;
+        *pytest*|*"npm test"*|*"npm run test"*|*"cargo test"*|*"go test"*|*jest*|*vitest*|*"dotnet test"*|*rspec*|*"gradle test"*|*"mvn test"*|*"make test"*|*"swift test"*|*"mix test"*|*phpunit*|*"rake test"*|*"rake spec"*|*"rails test"*|*"composer test"*|*minitest*) TEST_CMD_MATCH=true ;;
+    esac
+    # A command that merely PRINTS runner-looking text is not a test run —
+    # kills the trivial spoof (echo "pytest — 12 passed"). No pretense
+    # against determined spoofing; see FLOW_SPEC.md Enforcement.
+    case "$COMMAND" in
+        echo\ *|printf\ *|cat\ *|grep\ *|sed\ *|awk\ *|head\ *|tail\ *) TEST_CMD_MATCH=false ;;
     esac
 
     if [ "$TEST_CMD_MATCH" = "true" ] && [ -n "$TOOL_OUTPUT" ]; then
@@ -117,12 +123,24 @@ if [ "$TOOL_NAME" = "Bash" ] && command -v jq >/dev/null 2>&1; then
         # green evidence.
         RUN_PASSED=false
         RUN_FAILED=false
-        printf '%s' "$TOOL_OUTPUT" | grep -qEi '([0-9]+ passed|All tests passed|tests? (in [0-9]+ suites? )?passed|test run with [0-9]+ tests.*passed|BUILD SUCCEEDED|ok \(|Tests:.*[0-9]+ passed)' && RUN_PASSED=true
-        # The green-evidence VETO must only trigger on ACTUAL failures:
-        # nonzero failed-counts or hard build breaks. Green runs legitimately
-        # contain '0 tests failed', 'Failed: 0', ERROR-level log lines, and
-        # test names like test_handles_error — none of those may veto.
-        printf '%s' "$TOOL_OUTPUT" | grep -qEi '((^|[^0-9])[1-9][0-9]* +(tests? +)?failed|failed: *[1-9]|failures? *[=:] *[1-9]|errors? *= *[1-9]|BUILD FAILED|BUILD FAILURE|npm ERR)' && RUN_FAILED=true
+        # Pass patterns per runner family: generic counts, go quiet
+        # ('ok<tab>pkg' — grep is line-based over the multi-line variable,
+        # so ^ anchors per line), cargo ('test result: ok'), minitest
+        # ('N runs, ... 0 failures, 0 errors' — the [^0-9] guard rejects
+        # '20 failures'), mix ('N tests, 0 failures'), dotnet
+        # ('Passed!  - Failed: 0'), swift XCTest ('Test Suite ... passed'),
+        # phpunit ('OK (').
+        printf '%s' "$TOOL_OUTPUT" | grep -qEi '([0-9]+ passed|All tests passed|tests? (in [0-9]+ suites? )?passed|test run with [0-9]+ tests.*passed|BUILD SUCCEEDED|ok \(|Tests:.*[0-9]+ passed|^ok[[:space:]]|test result: ok|[0-9]+ runs?,.*[^0-9]0 failures, 0 errors|[0-9]+ tests?, 0 failures|Passed! +- Failed: +0|Test Suite .* passed)' && RUN_PASSED=true
+        # Red patterns must only trigger on ACTUAL failures — red now
+        # stamps positive evidence that block mode acts on, so additions
+        # stay summary-shaped: nonzero failed-counts, hard build breaks,
+        # go ('--- FAIL:', 'FAIL<tab>pkg'), minitest/mix ('N runs/tests,
+        # ... M failures/errors', [1-9] first digit so '0 failures' stays
+        # green), phpunit ('FAILURES!'), swift XCTest ('Test Suite ...
+        # failed', 'with N failures'). Green runs legitimately contain
+        # '0 tests failed', 'Failed: 0', ERROR-level log lines, and test
+        # names like test_handles_error — none of those may match.
+        printf '%s' "$TOOL_OUTPUT" | grep -qEi '((^|[^0-9])[1-9][0-9]* +(tests? +)?failed|failed: *[1-9]|failures? *[=:] *[1-9]|errors? *= *[1-9]|BUILD FAILED|BUILD FAILURE|npm ERR|--- FAIL:|^FAIL[[:space:]]|FAILURES!|[0-9]+ (runs?|tests?),.*[^0-9][1-9][0-9]* (failures?|errors?)|Test Suite .* failed|with [1-9][0-9]* failures?)' && RUN_FAILED=true
 
         if [ "$RUN_PASSED" = "true" ] && [ "$RUN_FAILED" = "false" ]; then
             mkdir -p "$STATE_DIR" 2>/dev/null
