@@ -1,5 +1,6 @@
 ---
 surface: {{web | api | cli | none}}
+data_environment: {{disposable | shared}}
 verified: {{YYYY-MM-DD}}
 ---
 
@@ -26,6 +27,18 @@ points to /quality-check + /manual-test. List every runnable surface below;
 | {{name, e.g. admin}} | {{web}} | {{http://localhost:PORT}} | {{optional area}} |
 
 - **CLI working directory:** {{path, or "repo root" — only for cli surfaces}}
+
+## Data environment
+
+`data_environment` (frontmatter, REQUIRED — preflight refuses to run without it):
+
+- `disposable` — every datastore this stack writes to (DB, files, queues, external
+  APIs via test keys) can be freely mutated and reset. Mutating scenarios allowed.
+- `shared` — ANY doubt: staging DATABASE_URL, live payment/SMTP keys, data other
+  people use. Preflight arms a MUTATION LOCK — /live-test then plans read-only
+  scenarios only (no create/update/delete, no double-submit, no destructive CLI).
+
+"localhost" only describes where the process listens, not what it is connected to.
 
 ## Preflight checks
 

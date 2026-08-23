@@ -8,8 +8,9 @@
 # shows every cmd line for human approval. Non-destructive; bash + curl only (docker
 # only for compose checks; cmd/compose bounded at 30s where GNU timeout exists).
 # Exit: 0 = all required checks pass · 1 = a required check failed, a line is
-#       malformed/unfilled, a non-local target was seen, or a declared block could
-#       not be extracted · 2 = app map missing/unreadable (run the interview).
+#       malformed/unfilled, a non-local target was seen, the data_environment
+#       declaration is missing/invalid, or a declared block could not be
+#       extracted · 2 = app map missing/unreadable (run the interview).
 set -uo pipefail
 
 MAP="${1:-docs/testing/APP_MAP.md}"
@@ -29,6 +30,31 @@ if [ ! -f "$MAP" ] || [ ! -r "$MAP" ]; then
   echo "REFUSED: app map '$MAP' not found or not a readable file. Run the /live-test first-run interview to create it."
   exit 2
 fi
+
+# --- Data-environment gate: what is this stack CONNECTED to? --------------------
+# "localhost" is not "safe": a dev server on localhost:8000 can hold a shared
+# DATABASE_URL or live payment keys. The map MUST declare the blast radius.
+DATA_ENV=$(awk '
+  NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit; next }
+  /^---[[:space:]]*$/ { exit }
+  /^data_environment[[:space:]]*:/ {
+    sub(/^data_environment[[:space:]]*:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit
+  }
+' "$MAP" | tr -d '\r' | sed -e "s/^[\"']//" -e "s/[\"']\$//")
+case "$DATA_ENV" in
+  disposable)
+    echo "  data_environment: disposable — mutating scenarios permitted" ;;
+  shared)
+    echo "== MUTATION LOCK: data_environment=shared — read-only run =="
+    echo "  The plan MUST exclude mutating scenarios: create/update/delete,"
+    echo "  double-submit/idempotency probes, form submits, destructive CLI." ;;
+  *)
+    echo "REFUSED: app map frontmatter must declare 'data_environment: disposable|shared' (found: '${DATA_ENV:-<missing>}')."
+    echo "        localhost does not mean safe — the stack may be connected to shared data."
+    echo "        Set 'disposable' ONLY if every datastore this stack writes can be freely mutated and reset;"
+    echo "        otherwise set 'shared' (mutating scenarios are then excluded). Update $MAP and re-run."
+    exit 1 ;;
+esac
 
 HAVE_TIMEOUT=""
 command -v timeout >/dev/null 2>&1 && HAVE_TIMEOUT=1
@@ -347,4 +373,5 @@ if [ "$UNFILLED" -gt 0 ]; then
 fi
 
 echo "== preflight summary: $PASS pass / $FAIL fail / $WARN warn =="
+[ "$DATA_ENV" = "shared" ] && echo "== MUTATION LOCK armed (data_environment: shared) =="
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1
