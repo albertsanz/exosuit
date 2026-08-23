@@ -110,13 +110,24 @@ test_case "advisory: exit 0 on source edit at unevidenced gate" "0" "${OUT%%|*}"
 test_case "advisory: warning names gate and evidence" "true" "$(printf '%s' "${OUT#*|}" | grep -q "the-gate" && printf '%s' "${OUT#*|}" | grep -q "tests-green" && echo true || echo false)"
 
 # The advisory must reach the MODEL, not just a debug log: PreToolUse exit-0
-# stderr is debug-only, so it has to be JSON on stdout with a non-blocking
-# permissionDecision. Regression guard for that contract.
+# stderr is debug-only, so it has to be JSON on stdout. It must NOT carry a
+# permissionDecision: 'allow' would SKIP the user's permission prompt —
+# silently auto-approving the very edit it warns about. Regression guards
+# for both halves of that contract.
 rm -f "$STATE_DIR/flow/.advised-alpha.the-gate.tests-green" 2>/dev/null
 ADV_JSON="$(run_pre_edit_stdout src/main.go)"
 test_case "advisory: emitted as JSON on stdout" "true" "$(printf '%s' "$ADV_JSON" | grep -q '"hookEventName":"PreToolUse"' && echo true || echo false)"
 test_case "advisory: reaches the model via additionalContext" "true" "$(printf '%s' "$ADV_JSON" | grep -q '"additionalContext":"Flow advisory' && echo true || echo false)"
-test_case "advisory: never blocks the edit" "true" "$(printf '%s' "$ADV_JSON" | grep -q '"permissionDecision":"allow"' && echo true || echo false)"
+test_case "advisory: no permissionDecision (never auto-approves)" "false" "$(printf '%s' "$ADV_JSON" | grep -q '"permissionDecision"' && echo true || echo false)"
+if command -v python3 >/dev/null 2>&1; then
+    # a real parser, not substring greps — the emitted JSON must be valid
+    test_case "advisory: stdout parses as JSON" "true" "$(printf '%s' "$ADV_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 && echo true || echo false)"
+else
+    echo "  SKIP: advisory JSON-parse case (python3 not available)"
+fi
+# rm the advised-mark first: without it this exercises the dedup
+# short-circuit (which prints nothing anyway) instead of the emission path
+rm -f "$STATE_DIR/flow/.advised-alpha.the-gate.tests-green" 2>/dev/null
 test_case "advisory: nothing on stderr" "" "$(printf '{"tool_name":"Edit","tool_input":{"file_path":"src/main.go"}}' | sh "$PRE_EDIT" 2>&1 >/dev/null)"
 
 # Test-file edit is exempt (writing the test IS the evidence)
