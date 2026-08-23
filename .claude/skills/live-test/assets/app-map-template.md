@@ -9,7 +9,9 @@ verified: {{YYYY-MM-DD}}
 > Owned by this project (like UAT_COVERAGE.md). Update when preflight disagrees with reality.
 > TRUST NOTE: the preflight-checks block below is executable configuration (like a
 > Makefile) — only maintainers edit this file, and cmd lines are shown for human
-> approval during the /live-test first-run interview.
+> approval during the /live-test first-run interview. Preflight's localhost scan of
+> cmd lines is an accident-catcher for obvious external URLs in this trusted config,
+> NOT a security boundary — the human approval of cmd lines is the boundary.
 
 ## Surfaces
 

@@ -66,6 +66,26 @@ is_local_url() {
   esac
 }
 
+# Verify one URL-position word from a curl/wget invocation ($1 = original word,
+# $2 = lowercased). Scheme-less words get http:// prepended — curl/wget default
+# to it — so dotless hosts, decimal/hex IPs, and bracketed IPv6 are all tested.
+# A word this gate cannot verify lexically ($, backticks, quotes …) is refused:
+# inside a network-fetch command, an unverifiable word IS the risk.
+scan_url_word() {
+  cand="${2#--url=}"
+  endsemi=""
+  case "$cand" in *\;) endsemi=1; cand="${cand%\;}" ;; esac
+  case "$cand" in
+    '') ;;
+    *[!]a-z0-9.:@_/[-]*)
+      remote=1; why="— cannot verify dynamic URL '$1' in a $netcmd command; use a literal localhost URL" ;;
+    http://*|https://*) is_local_url "$cand" || remote=1 ;;
+    *) is_local_url "http://$cand" || remote=1 ;;
+  esac
+  [ -n "$endsemi" ] && netcmd=""
+  return 0
+}
+
 # --- Extract the checks block ------------------------------------------------------
 # Fence-aware (CommonMark): opener needs >=3 backticks or tildes at <=3 spaces
 # indent; the closer needs the same fence char with at least as many. Blocks
@@ -252,30 +272,57 @@ while IFS='|' read -r ctype label target required remedy; do
       fi
       ;;
     cmd)
-      # containment note, not a guarantee: cmd checks are shell (see TRUST
-      # BOUNDARY above). This guard only catches obvious remote http(s) URLs.
-      remote=""
+      # Accident-catcher, NOT a security boundary: cmd checks are shell (see
+      # TRUST BOUNDARY above) — a map author already has full shell, so no word
+      # scan can contain a hostile line. This scan catches an accidental or
+      # LLM-generated external URL in otherwise-trusted config: explicit-scheme
+      # words anywhere in any command (fail-open on shell metacharacters, so
+      # ordinary commands stay unaffected), plus EVERY argument of a curl/wget
+      # invocation, where an unverifiable word is refused — fail-closed only in
+      # that network-fetch scope.
+      remote=""; why=""
+      netcmd=""      # '' = ordinary scope · curl/wget = network-fetch scope
+      skipval=""     # next word is the value of an option that never takes a URL
+      urlnext=""     # next word is the argument of curl --url
+      set -f         # word-splitting only — never glob-expand (`ls *.py`)
       for word in $target; do
         lw=$(printf '%s' "$word" | tr '[:upper:]' '[:lower:]')
+        if [ -n "$skipval" ]; then skipval=""; continue; fi
         case "$lw" in
-          # Explicit scheme.
-          http://*|https://*|ftp://*|ftps://*|scp://*|sftp://*|ssh://*)
-            is_local_url "$lw" || remote=1 ;;
-          # Scheme-LESS host arguments. curl/wget default to http://, so
-          # `curl evil.example.com/x` would otherwise slip past a check that
-          # only inspects http(s):// words. Treat any bare word that looks
-          # like a host (dotted name or user@host) as a URL and test it.
-          -*|/*|./*|../*|'')
-            ;;
-          *@*|*.*)
-            case "$lw" in
-              *[!a-z0-9.:@_/-]*) ;;   # has shell/path metachars: not a bare host
-              *) is_local_url "http://${lw#*@}" || remote=1 ;;
-            esac ;;
+          '&&'|'||'|';'|'|'|'&') netcmd=""; urlnext=""; continue ;;
         esac
+        if [ -n "$urlnext" ]; then urlnext=""; scan_url_word "$word" "$lw"; continue; fi
+        case "$lw" in
+          # Explicit scheme — scanned in EVERY command.
+          http://*|https://*|ftp://*|ftps://*|scp://*|sftp://*|ssh://*)
+            is_local_url "$lw" || remote=1
+            case "$lw" in *\;) netcmd="" ;; esac
+            continue ;;
+        esac
+        if [ -z "$netcmd" ]; then
+          case "$lw" in curl|wget) netcmd="$lw" ;; esac
+          continue
+        fi
+        # -- inside a curl/wget invocation --
+        case "$netcmd:$word" in
+          curl:-K|curl:--config|curl:--config=*)
+            remote=1; why="— curl -K/--config reads its URLs from a file this gate cannot see; use inline http checks instead"; continue ;;
+          wget:-i|wget:--input-file|wget:--input-file=*)
+            remote=1; why="— wget -i/--input-file reads its URLs from a file this gate cannot see; use inline http checks instead"; continue ;;
+        esac
+        case "$word" in
+          --url) urlnext=1; continue ;;
+          --url=*) ;;                    # value attached — scanned below
+          -*=*) continue ;;              # --opt=value: only --url= carries a URL
+          -o|-d|-H|-F|-T|-A|-e|-b|-c|-u|-E|-K|-m|-X|--request|--data*|--header|--output|--config|--cookie*|--user*|--referer|--cert|--key|--cacert|--form|--upload-file|--retry*|--max-time)
+            skipval=1; continue ;;       # value is never a fetched URL
+          -*) continue ;;                # option taking no value
+        esac
+        scan_url_word "$word" "$lw"
       done
+      set +f
       if [ -n "$remote" ]; then
-        echo "REFUSED: check '$label' targets a non-local URL. Live tests only run against the local machine."
+        echo "REFUSED: check '$label' ${why:-targets a non-local URL}. Live tests only run against the local machine."
         exit 1
       fi
       bounded sh -c "$target" </dev/null >/dev/null 2>&1; rc=$?
