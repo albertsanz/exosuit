@@ -10,10 +10,23 @@
 # Exit: 0 = all required checks pass · 1 = a required check failed, a line is
 #       malformed/unfilled, a non-local target was seen, the data_environment
 #       declaration is missing/invalid, or a declared block could not be
-#       extracted · 2 = app map missing/unreadable (run the interview).
+#       extracted · 2 = app map missing/unreadable (run the interview) · 3 = cmd
+#       lines require per-clone user approval (or a stale --approve-cmds hash)
+#       — nothing was executed.
 set -uo pipefail
 
-MAP="${1:-docs/testing/APP_MAP.md}"
+MAP="docs/testing/APP_MAP.md"
+APPROVE_CMDS=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --approve-cmds)
+      shift
+      [ "$#" -gt 0 ] || { echo "REFUSED: --approve-cmds needs the hash printed by the previous run."; exit 3; }
+      APPROVE_CMDS="$1" ;;
+    *) MAP="$1" ;;
+  esac
+  shift
+done
 
 PASS=0
 FAIL=0
@@ -215,6 +228,7 @@ if [ -z "$CHECKS" ]; then
     echo "  (no preflight-checks block declared in the app map — nothing to verify)"
   fi
   echo "== preflight summary: 0 checks =="
+  [ "$DATA_ENV" = "shared" ] && echo "== MUTATION LOCK armed (data_environment: shared) =="
   exit 0
 fi
 
@@ -222,6 +236,56 @@ HAVE_DOCKER=""
 command -v docker >/dev/null 2>&1 && HAVE_DOCKER=1
 
 trim() { v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
+
+# --- cmd approval gate: no shell from the map runs without a human ---------------
+# cmd targets execute via sh -c. They are enumerated and hashed BEFORE anything
+# runs; the approved-set hash lives in .claude/hooks/state/ (gitignored — approval
+# is per-clone and can never be committed on anyone else's behalf). The model
+# cannot approve: it shows the lines verbatim, asks the user, then re-runs with
+# --approve-cmds <hash>. A hash minted against an older map is refused (TOCTOU).
+sha() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
+  else cksum | awk '{print $1 "-" $2}'; fi
+}
+CMD_LIST=$(printf '%s\n' "$CHECKS" | while IFS='|' read -r ctype label target required remedy; do
+  ctype=$(trim "${ctype:-}"); target=$(trim "${target:-}"); required=$(trim "${required:-}")
+  [ "$ctype" = "cmd" ] || continue
+  case "$ctype$required" in *'{{'*) continue ;; esac   # unfilled template line — never executes
+  printf '%s\n' "$target"
+done)
+if [ -n "$CMD_LIST" ]; then
+  CMD_HASH=$(printf '%s\n' "$CMD_LIST" | LC_ALL=C sort | sha)
+  STATE_DIR=".claude/hooks/state"
+  HASH_FILE="$STATE_DIR/live-test-approved-cmds"
+  STORED=""
+  [ -r "$HASH_FILE" ] && STORED=$(tr -d ' \n\r' < "$HASH_FILE")
+  if [ -n "$APPROVE_CMDS" ]; then
+    if [ "$APPROVE_CMDS" = "$CMD_HASH" ]; then
+      mkdir -p "$STATE_DIR" 2>/dev/null
+      printf '%s\n' "$CMD_HASH" > "$HASH_FILE"
+      echo "  cmd checks approved for this clone ($CMD_HASH)"
+      STORED="$CMD_HASH"
+    else
+      echo "REFUSED: --approve-cmds hash does not match the map's current cmd lines — the map changed after the commands were shown. Re-run WITHOUT the flag and re-review."
+      exit 3
+    fi
+  fi
+  if [ "$STORED" != "$CMD_HASH" ]; then
+    echo "== CMD APPROVAL REQUIRED (nothing was executed) =="
+    if [ -n "$STORED" ]; then echo "  The map's cmd lines CHANGED since last approved for this clone.";
+    else echo "  The map's cmd lines have never been approved for this clone."; fi
+    echo "  preflight will run these as shell:"
+    n=0
+    printf '%s\n' "$CMD_LIST" | while IFS= read -r line; do
+      n=$((n+1)); printf '    cmd %s: %s\n' "$n" "$line"
+    done
+    echo "  approval hash: $CMD_HASH"
+    echo "  Show every line above to the user VERBATIM. Only after explicit approval, re-run:"
+    echo "    bash \$CLAUDE_SKILL_DIR/scripts/preflight.sh $MAP --approve-cmds $CMD_HASH"
+    exit 3
+  fi
+fi
 
 while IFS='|' read -r ctype label target required remedy; do
   ctype=$(trim "${ctype:-}"); label=$(trim "${label:-}"); target=$(trim "${target:-}"); required=$(trim "${required:-}")

@@ -12,7 +12,8 @@ verified: {{YYYY-MM-DD}}
 > Makefile) — only maintainers edit this file, and cmd lines are shown for human
 > approval during the /live-test first-run interview. Preflight's localhost scan of
 > cmd lines is an accident-catcher for obvious external URLs in this trusted config,
-> NOT a security boundary — the human approval of cmd lines is the boundary.
+> NOT a security boundary — the per-clone cmd approval (preflight exit 3, re-run
+> with `--approve-cmds <hash>` only after the user approves) is the boundary.
 
 ## Surfaces
 
