@@ -226,7 +226,7 @@ d="$(make_repo)"; cd "$d"
 if command -v jq >/dev/null 2>&1; then
     for green in "100% tests passed, 0 tests failed out of 12" "12 tests passed\nERROR StatusLogger could not find log4j2" "test_handles_error PASSED\n12 passed" "Passed! - Failed: 0, Passed: 12, Total: 12 tests passed"; do
         rm -rf "$STATE_DIR/flow"; rm -f "$STATE_DIR/tests-passed"
-        printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_output":"%s"}' "$green" | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+        printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_response":{"stdout":"%s","stderr":""}}' "$green" | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
         if [ ! -f "$STATE_DIR/flow/tests-green" ]; then
             test_case "green-noise stamps: ${green%%\\n*}" "stamped" "missing"
         else
@@ -274,23 +274,32 @@ cd "$ORIG_PWD"
 d="$(make_repo)"; cd "$d"
 if command -v jq >/dev/null 2>&1; then
     rm -rf "$STATE_DIR/flow"; rm -f "$STATE_DIR/tests-passed"
-    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_output":"3 passed, 9 failed"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_response":{"stdout":"3 passed, 9 failed","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     test_case "mixed run does not stamp tests-green" "false" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
     test_case "mixed run does not stamp tests-passed" "false" "$([ -f "$STATE_DIR/tests-passed" ] && echo true || echo false)"
-    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_output":"12 passed"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_response":{"stdout":"12 passed","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     test_case "clean pass stamps tests-green" "true" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
-    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_output":"12 failed"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    # summaries on STDERR count too (runners split streams differently)
+    rm -rf "$STATE_DIR/flow"
+    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_response":{"stdout":"","stderr":"12 passed"}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    test_case "stderr-only pass summary stamps tests-green" "true" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
+    # legacy payload shape (flat tool_output string) still stamps —
+    # pins the defensive fallback for older harness versions
+    rm -rf "$STATE_DIR/flow"
+    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_output":"12 passed"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    test_case "legacy tool_output payload still stamps tests-green" "true" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
+    printf '{"tool_name":"Bash","tool_input":{"command":"pytest"},"tool_response":{"stdout":"12 failed","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     test_case "failing run revokes tests-green" "false" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
     # unittest and maven red formats also revoke
     date > "$STATE_DIR/flow/tests-green"
-    printf '{"tool_name":"Bash","tool_input":{"command":"make test"},"tool_output":"FAILED (errors=2)"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    printf '{"tool_name":"Bash","tool_input":{"command":"make test"},"tool_response":{"stdout":"FAILED (errors=2)","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     test_case "unittest errors=2 revokes tests-green" "false" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
     date > "$STATE_DIR/flow/tests-green"
-    printf '{"tool_name":"Bash","tool_input":{"command":"mvn test"},"tool_output":"BUILD FAILURE"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    printf '{"tool_name":"Bash","tool_input":{"command":"mvn test"},"tool_response":{"stdout":"BUILD FAILURE","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     test_case "maven BUILD FAILURE revokes tests-green" "false" "$([ -f "$STATE_DIR/flow/tests-green" ] && echo true || echo false)"
     # failure log lines are valid single-line JSON even at zero fail-count
     rm -f docs/sessions/.failure-log.jsonl
-    printf '{"tool_name":"Bash","tool_input":{"command":"npm test"},"tool_output":"npm ERR! code ELIFECYCLE"}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
+    printf '{"tool_name":"Bash","tool_input":{"command":"npm test"},"tool_response":{"stdout":"npm ERR! code ELIFECYCLE","stderr":""}}' | sh "$HOOKS_DIR/post-tool-use.sh" >/dev/null 2>&1 || true
     FLOG_LINES=$(wc -l < docs/sessions/.failure-log.jsonl 2>/dev/null | tr -d ' ')
     FLOG_VALID=$(head -1 docs/sessions/.failure-log.jsonl 2>/dev/null | jq -e . >/dev/null 2>&1 && echo true || echo false)
     test_case "failure log: one line per failure entry" "1" "$FLOG_LINES"
