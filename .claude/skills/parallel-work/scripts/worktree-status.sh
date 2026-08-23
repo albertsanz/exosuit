@@ -41,12 +41,17 @@ WT_PATH="" WT_HEAD="" WT_BRANCH="" WT_DETACHED=0 MAIN_SEEN=0
 
 emit_row () {
   [ -n "$WT_PATH" ] || return 0
-  if [ "$WT_DETACHED" = "1" ]; then
-    echo "| $WT_PATH | (detached ${WT_HEAD:0:7}) | - | - |"
-  elif [ "$MAIN_SEEN" = "0" ]; then
-    # First entry = the main worktree: it IS the base, nothing to compare to.
+  if [ "$MAIN_SEEN" = "0" ]; then
+    # First entry = the main worktree: it IS the base (even detached), nothing
+    # to compare to.
     MAIN_SEEN=1
-    echo "| $WT_PATH | $WT_BRANCH | - | (base) |"
+    if [ "$WT_DETACHED" = "1" ]; then
+      echo "| $WT_PATH | (detached ${WT_HEAD:0:7}) | - | (base) |"
+    else
+      echo "| $WT_PATH | $WT_BRANCH | - | (base) |"
+    fi
+  elif [ "$WT_DETACHED" = "1" ]; then
+    echo "| $WT_PATH | (detached ${WT_HEAD:0:7}) | - | - |"
   else
     local parent counts ahead behind
     parent="$(git config "branch.$WT_BRANCH.exosuitParent" 2>/dev/null || true)"
