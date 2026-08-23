@@ -161,17 +161,23 @@ OUT="$(run_pre_edit src/main.go)"
 test_case "no cursor: silent" "0|" "$OUT"
 cd "$ORIG_PWD"
 
-# --- Block mode (explicit opt-in) ---
+# --- Block mode (explicit opt-in): fail-open — missing evidence NEVER
+# blocks; only positive red evidence (state/flow/tests-red) does ---
 d="$(make_repo)"; cd "$d"
 sh "$LIB" enter alpha the-gate
 export EXOSUIT_FLOW_MODE=block
 OUT="$(run_pre_edit src/main.go)"
-test_case "block: exit 2 on source edit at unevidenced gate" "2" "${OUT%%|*}"
-OUT="$(run_pre_edit tests/test_main.go)"
-test_case "block: test edit still exempt" "0|" "$OUT"
-mkdir -p "$STATE_DIR/flow"; date > "$STATE_DIR/flow/tests-green"
+test_case "block: no red evidence -> advisory, never blocks" "0" "${OUT%%|*}"
+test_case "block: fall-through advisory still warns" "true" "$(printf '%s' "${OUT#*|}" | grep -q "Flow advisory" && echo true || echo false)"
+mkdir -p "$STATE_DIR/flow"; date > "$STATE_DIR/flow/tests-red"
 OUT="$(run_pre_edit src/main.go)"
-test_case "block: silent when evidence present" "0|" "$OUT"
+test_case "block: red evidence blocks (exit 2)" "2" "${OUT%%|*}"
+test_case "block: reason names evidence and the FAILED run" "true" "$(printf '%s' "${OUT#*|}" | grep -q "tests-green" && printf '%s' "${OUT#*|}" | grep -q "FAILED" && echo true || echo false)"
+OUT="$(run_pre_edit tests/test_main.go)"
+test_case "block: test edit exempt even with red evidence" "0|" "$OUT"
+date > "$STATE_DIR/flow/tests-green"
+OUT="$(run_pre_edit src/main.go)"
+test_case "block: silent when evidence present (green beats red)" "0|" "$OUT"
 rm -rf "$STATE_DIR/flow"
 unset EXOSUIT_FLOW_MODE
 

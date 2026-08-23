@@ -10,8 +10,13 @@
 # Modes (EXOSUIT_FLOW_MODE: off | advisory | block; default derived from the
 # project profile — lean: off, standard/strict: advisory; blocking is an
 # explicit opt-in, never a default):
-#   advisory — one-line warning on stderr, never blocks (exit 0)
-#   block    — exit 2 with the reason (deterministic gate, opt-in)
+#   advisory — PreToolUse JSON (additionalContext + systemMessage), never
+#              blocks (exit 0), warns once per (flow, node, evidence)
+#   block    — exit 2 ONLY on positive red evidence: a recognized test
+#              runner demonstrably FAILED this session (state/flow/tests-red)
+#              and no green run has been seen since. Missing evidence — an
+#              unrecognized runner, or no run yet — is ignorance, not
+#              failure, and never blocks (falls through to the advisory).
 #
 # Exemptions (never warns/blocks): edits to test files (writing a test IS the
 # evidence being asked for; shared patterns in lib/test-paths.sh), docs/config
@@ -64,8 +69,9 @@ EVIDENCE=$(printf '%s' "$NODE_CLEAN" | sed -n 's/.*evidence: \([a-z][a-z-]*\).*/
 [ -n "$EVIDENCE" ] || exit 0
 
 # tests-green can only ever be stamped when jq is available (post-tool-use
-# needs it to read tool output) — without jq the marker is unproducible, so
-# enforcement must fail open rather than block forever.
+# needs it to read tool output) — without jq the marker is unproducible.
+# No jq also means no tests-red, so block mode could never fire anyway;
+# exiting here just suppresses a perpetual, unfixable advisory.
 if [ "$EVIDENCE" = "tests-green" ] && ! command -v jq >/dev/null 2>&1; then
     exit 0
 fi
@@ -100,14 +106,23 @@ if [ -n "$FAIL_TARGET" ] && [ "$FAIL_TARGET" != "STOP" ]; then
     REMEDY="$REMEDY; if the gate FAILED, take its fail edge: sh .claude/hooks/lib/graph-state.sh enter $CUR_FLOW $FAIL_TARGET"
 fi
 EXPLAIN_MODE="${EXOSUIT_EXPLAIN_MODE:-brief}"
-if [ "$FLOW_MODE" = "block" ]; then
+# Block ONLY on positive red evidence: a recognized runner demonstrably
+# FAILED this session (state/flow/tests-red, stamped by post-tool-use.sh)
+# and no green run has been observed since. An unrecognized runner or a
+# session with no observed run leaves NO red marker — that is ignorance,
+# not failure, and ignorance never blocks (a runner whose output the
+# patterns cannot read can never wall off edits). Evidence classes with
+# no red analog (test-written) can never block.
+if [ "$FLOW_MODE" = "block" ] && [ "$EVIDENCE" = "tests-green" ] && [ -f "$STATE_DIR/flow/tests-red" ]; then
     if [ "$EXPLAIN_MODE" = "verbose" ]; then
-        printf 'Flow gate: /%s is at gate '\''%s'\'' which requires evidence '\''%s'\'' before source edits.\n  WHY: The gate declares mechanically checkable evidence (see flow.yaml and FLOW_SPEC.md). Remedy: %s. Set EXOSUIT_FLOW_MODE=advisory to warn instead of block.\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
+        printf 'Flow gate: /%s is at gate '\''%s'\'' which requires evidence '\''%s'\'' — the last observed test run FAILED.\n  WHY: state/flow/tests-red is stamped when a recognized test command demonstrably fails, and revoked by a green run (see FLOW_SPEC.md). Remedy: %s. Set EXOSUIT_FLOW_MODE=advisory to warn instead of block.\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
     else
-        printf 'Flow gate: /%s at '\''%s'\'' requires evidence '\''%s'\''. Remedy: %s. (EXOSUIT_FLOW_MODE=advisory to warn instead.)\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
+        printf 'Flow gate: /%s at '\''%s'\'' requires evidence '\''%s'\'' and the last observed test run FAILED. Remedy: %s. (EXOSUIT_FLOW_MODE=advisory to warn instead.)\n' "$CUR_FLOW" "$CUR_NODE" "$EVIDENCE" "$REMEDY" >&2
     fi
     exit 2
 fi
+# Everything else — block mode without red evidence included — falls
+# through to the advisory below.
 # Advisory: warn ONCE per (flow, node, evidence) — not on every edit.
 # '.' separates the fields ('-' is legal inside kebab ids and would let
 # distinct (flow, node) pairs collide on one marker).

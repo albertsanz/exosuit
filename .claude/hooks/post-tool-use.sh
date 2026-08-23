@@ -130,10 +130,15 @@ if [ "$TOOL_NAME" = "Bash" ] && command -v jq >/dev/null 2>&1; then
             # Flow gate evidence (evidence: tests-green)
             mkdir -p "$STATE_DIR/flow" 2>/dev/null
             date -u +"%Y-%m-%dT%H:%M:%SZ" > "$STATE_DIR/flow/tests-green" 2>/dev/null
+            rm -f "$STATE_DIR/flow/tests-red" 2>/dev/null
         elif [ "$RUN_FAILED" = "true" ]; then
-            # The marker reflects the MOST RECENT observed run, not the
-            # best run of the session — a red suite revokes green evidence.
+            # Markers reflect the MOST RECENT observed run, not the best
+            # run of the session: a red suite revokes green evidence AND
+            # stamps positive red evidence — the ONLY signal block mode
+            # is allowed to act on (fail-open otherwise).
             rm -f "$STATE_DIR/flow/tests-green" 2>/dev/null
+            mkdir -p "$STATE_DIR/flow" 2>/dev/null
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > "$STATE_DIR/flow/tests-red" 2>/dev/null
         fi
 
         # --- Track test/build failures for retrospective analysis ---
