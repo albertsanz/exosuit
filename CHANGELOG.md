@@ -271,26 +271,40 @@ middle of the file as code today.
   ideate version sync
 
 ### Level 5 — Evidence & Enforcement (side rung, stacked on the ladder top; opt-in)
-Gate evidence becomes observable and, only by explicit opt-in, enforceable.
-`gate.hard` nodes may declare `evidence: <marker>`; post-tool-use.sh stamps
-observed facts per session (`test-written`, `tests-green`) into
-`.claude/hooks/state/flow/`, cleared at session start. The ONE new hook
-registration of the whole ladder: PreToolUse Edit|Write → `flow-pre-edit.sh`
-(in both settings.json and hooks.json). `EXOSUIT_FLOW_MODE` ladder:
-lean defaults `off`, standard/strict default `advisory` (one-line warning,
-never blocks); `block` is explicit opt-in — flow-pre-edit exits 2 on source
-edits at unevidenced gates, and stop.sh refuses completion mid-flow at
+Gate evidence becomes observable and, only by explicit opt-in, best-effort
+enforceable. `gate.hard` nodes may declare `evidence: <marker>`;
+post-tool-use.sh stamps observed facts per session (`test-written`,
+`tests-green`, `tests-red`) into `.claude/hooks/state/flow/`, cleared at
+session start; post-tool-failure.sh also stamps `tests-red` when the
+harness itself reports a test command failed. The ONE new hook registration
+of the whole ladder: PreToolUse Edit|Write → `flow-pre-edit.sh` (in both
+settings.json and hooks.json), short-circuiting with shell builtins when no
+flow cursor exists. `EXOSUIT_FLOW_MODE` ladder: lean defaults `off`,
+standard/strict default `advisory` (PreToolUse JSON warning, never blocks);
+`block` is explicit opt-in and FAIL-OPEN — it exits 2 only on positive red
+evidence (the last observed test run FAILED, no green run since); missing
+evidence — an unrecognized runner, or no run yet — downgrades to the
+advisory, and `test-written` gates can never block. Blocks per gate are
+bounded by `EXOSUIT_FLOW_MAX_BLOCKS` (default 3), then the valve releases
+to advisory with an explicit note. stop.sh refuses completion mid-flow at
 non-terminal nodes (bounded by the existing stop-iteration valve, which the
 new check increments like every other exit-2 path). Test/docs edits are
-always exempt — writing the test IS the evidence being asked for. Judgment
-gates are never machine-enforced. Fails open everywhere; kill switches:
-`EXOSUIT_FLOW_MODE=off`, `EXOSUIT_DISABLED_HOOKS=flow-pre-edit`.
+always exempt — writing the test IS the evidence being asked for — and
+inline-test files (Rust `#[cfg(test)]`, Elixir doctest/ExUnit) are carved
+out by content. Judgment gates are never machine-enforced, the evidence
+markers are substring heuristics — a best-effort speed bump, not a wall —
+and everything fails open; kill switches: `EXOSUIT_FLOW_MODE=off`,
+`EXOSUIT_DISABLED_HOOKS=flow-pre-edit`.
 
 - Added: `.claude/hooks/flow-pre-edit.sh`, `.claude/hooks/lib/test-paths.sh`
-  (single shared test-path source — stamping set equals exemption set by
-  construction), `.claude/hooks/tests/test-flow-enforce.sh` (exemptions,
-  kill switches, valve interaction, mixed-run and superset invariants)
-- Changed: `.claude/hooks/post-tool-use.sh` (evidence stamps),
+  (single shared test-file source, path patterns plus inline-test content
+  carve-out — stamping set equals exemption set by construction),
+  `.claude/hooks/tests/test-flow-enforce.sh` (exemptions, kill switches,
+  fail-open and red-evidence blocking, valve counting and release,
+  short-circuit, runner stamping matrix, mixed-run and superset invariants)
+- Changed: `.claude/hooks/post-tool-use.sh` (evidence stamps, tool_response
+  payload read, runner coverage, print-command spoof guard),
+  `.claude/hooks/post-tool-failure.sh` (harness-failure red stamp),
   `.claude/hooks/session-start.sh` (per-session marker reset),
   `.claude/hooks/stop.sh` (block-mode flow check), `.claude/settings.json` +
   `.claude/hooks/hooks.json` (registration),
