@@ -1365,7 +1365,7 @@ Batch code logic verification: load UAT coverage → select 2-5 test cases → t
      │  ├──→ Phase 1-2: resolve scope → test plan (user approves at hard gate)
      │  ├──→ Phase 3-4: drive the surface (browser/API/CLI), verify ALL signals,
      │  │       append each verdict to the findings file as it completes
-     │  ├──→ Phase 5: classify failures; fix loop (Bug Critical only, max 3 attempts)
+     │  ├──→ Phase 5: classify failures; fix loop (only with --fix; Bug Critical only, max 3 attempts)
      │  └──→ Phase 6: findings report + UAT results rows + handoffs
      │             → /testing-cycle "bug"   → /ideate "gap"
 ```
