@@ -25,6 +25,18 @@
 # edit. Fail-open on every error.
 # POSIX-compliant — no bash required.
 
+# --- Short-circuit: no cursor file => nothing to enforce (zero-cost path) ---
+# The hook registration cd's to the git toplevel first (hooks.json /
+# settings.json — see README, the hook depends on that wrapper), so this
+# relative path is the same file graph-state.sh resolves via git rev-parse.
+# [ -f ] is a builtin and a cursor always writes 'flow:' at column 0 of
+# the frontmatter (graph-state.sh), so the common no-flow case costs zero
+# external processes — instead of the ~15 the full path spawns per edit.
+# A false positive (a 'flow:' body line) just falls through to the real
+# frontmatter-scoped parse below. Fail-open as ever.
+[ -f "docs/sessions/.failure-state.md" ] || exit 0
+grep -q '^flow:' "docs/sessions/.failure-state.md" 2>/dev/null || exit 0
+
 HOOKS_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="$HOOKS_DIR/state"
 

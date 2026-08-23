@@ -143,7 +143,9 @@ Advisory warnings via `rules/advisory.patterns`:
 - Long-running dev servers (npm dev, flask run, rails server, etc.)
 
 ### PreToolUse (Edit|Write)
-`flow-pre-edit.sh`: Flow gate evidence check (see `.claude/skills/FLOW_SPEC.md` → Gate Evidence & Enforcement). Advisory by default; blocks only with explicit `EXOSUIT_FLOW_MODE=block`. Test/docs edits always exempt; fails open.
+`flow-pre-edit.sh`: Flow gate evidence check (see `.claude/skills/FLOW_SPEC.md` → Gate Evidence & Enforcement). Advisory by default; blocks only with explicit `EXOSUIT_FLOW_MODE=block`, and even then only on positive red evidence. Test/docs edits always exempt; fails open.
+
+The hook short-circuits with shell builtins when no flow cursor file exists, which depends on its registration wrapper: both settings.json and hooks.json register it as `cd "$(git rev-parse --show-toplevel ...)" && sh .../flow-pre-edit.sh`. Registering the script WITHOUT that cd-wrapper makes it a silent no-op (fail-open — enforcement quietly off), because the relative cursor path never resolves.
 
 ### PreToolUse (Read)
 `pre-read-check.sh`: Warns when reading sensitive files (.env, .key, .pem, credentials). Advisory only — never blocks.
