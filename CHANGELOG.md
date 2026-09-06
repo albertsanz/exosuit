@@ -157,12 +157,75 @@ entry:
 
 Versions: parallel-work 3.0.0 → 3.0.1.
 
+### Parallel streams: script-computed facts, verdict lines, terminal hints
+`/parallel-work` 3.0.1 → 4.0.0, `/merge-up` 1.0.0 → 2.0.0, `/merge-down` 1.0.0 → 1.1.0,
+`/sprint-end` 2.10.1 → 2.11.0, `/sprint-start` 2.7.1 → 2.8.0. The parallel-work
+scripts now compute every git fact and print fixed verdict lines
+(`GATE <name>: OK|FAIL — <reason>`, `MERGE: …`, `SYNC: …`, `CLEANUP: …`) that the
+skills route on and paste; the model never interprets git's error text or
+re-derives what a script printed. Refusals are script exit codes with a named
+reason (fan-out from inside a stream, detached HEAD, merging into the default
+branch, merging while behind the parent, a parent worktree mid-merge, a lock,
+a hook that refused the merge commit); advisories (dirty base, session
+detection unavailable, committed overlap between unmerged streams, a dirty
+child at sprint end) print a line and change nothing. Streams open as named
+sessions (`--name <branch>`) whose first prompt is `/parallel-work hello`; the
+sessions send each other four fixed hints (HELLO, MERGED, BYE, NOTE) through
+Claude Code's cross-session messaging. A hint never approves, runs or decides
+anything; git config and refs are the facts. Every cross-session feature fails
+open to today's behaviour and says so on stderr. Cleanup is a dry run that asks
+before `--apply`, keeps live, dirty, unmerged, upstream-blocked and current
+worktrees, and never force-deletes. The roster table gained Story, Session, Tree
+and Last commit columns. Provenance: the design was developed and measured on a
+private engagement owned by the maintainer; nothing is copied — see the PR.
+
+Verified in CI on ubuntu (bash 5) and macos-latest (bash 3.2.57, git 2.55); the
+Terminal.app, Windows Terminal, WSL, iTerm2, gnome-terminal and konsole arms are
+covered by stubbed-binary tests only and are not verified by execution here.
+
+### Files changed
+- `core/skills/parallel-work/SKILL.md` — status / start / hello / cleanup around the scripts; trigger-only description; `ListAgents, SendMessage`; activity-log events on start and cleanup; 3.0.1 → 4.0.0
+- `core/skills/parallel-work/scripts/worktree-status.sh` — eight-column roster, committed-overlap block, `--porcelain`, `--me`, `--gate start|merge-up|merge-down|children`, live-session join (jq, python3, else `-` with an ADVISORY), tag-proof branch identity, no `set -e`
+- `core/skills/parallel-work/scripts/new-worktree.sh` — `--story`, `--no-parent`; refuses a base that is itself a stream; `.mcp.json` copied only when gitignored, boundary-safe rewrite; usage errors exit 2
+- `core/skills/parallel-work/scripts/open-worktree-terminals.sh` — Terminal.app: one `do script` per stream, no keystrokes, no Accessibility; `--name` + `--` + first prompt; `CLAUDE_CONFIG_DIR` passed through; quoting; exit 1 on any failure; new knobs
+- `core/skills/merge-up/SKILL.md` — routes on `merge-up-run.sh` verdicts; refuses a default-branch parent and a stream that is behind; never guesses a parent; MERGED hint; 1.0.0 → 2.0.0
+- `core/skills/merge-down/SKILL.md` — gate through `worktree-status.sh --gate merge-down`; no fetch by default; `--no-edit`; 1.0.0 → 1.1.0
+- `core/skills/sprint-end/SKILL.md` — step 1 `--gate children`; step 6 scripted cleanup before the squash merge; 2.10.1 → 2.11.0
+- `core/skills/sprint-start/SKILL.md` — `--worktree` via `new-worktree.sh sprint-<n> --no-parent`; 2.7.1 → 2.8.0
+- `core/skills/story-cycle/SKILL.md`, `core/skills/story-cycle/references/parallel-streams.md` — `/parallel-work create` → `start`; bridge to /merge-up and /merge-down
+- `core/hooks/session-start.sh` — `Stream:` banner with a `behind` count on stdout inside a stream
+- `core/hooks/worktree.sh` — WorktreeCreate arm removed (it printed no path and aborted native `claude --worktree` creation while registered); hook guard added
+- `core/settings.json`, `core/hooks/hooks.json` — WorktreeCreate and worktree-bash-fix registrations removed
+- `core/hooks/tests/run-all.sh` — runs every file, summarises failures
+- `core/hooks/tests/test-session-start.sh` — banner cases
+- `core/skills/skills-registry.json` — rows for merge-up and merge-down (missing since 5.0.0); versions and `depends_on` synced
+- `core/skills/SKILLS_INVENTORY.md`, `core/MANIFEST.md`, `core/skills/uninstall/SKILL.md`, `core/skills/help-me/SKILL.md`, `llms.txt`, `docs/FRAMEWORK_REFERENCE.md`, `README.md`, `docs/reference/WORKFLOW.md` + scaffold, `core/hooks/README.md`, `CONTRIBUTING.md` — references, counts and claims aligned; the runtime claim qualified (parallel-work scripts are bash 3.2+; jq/python3 optional)
+- `.gitignore.framework` — `.mcp.json`, `.claude/worktrees/`
+- `.github/workflows/ci.yml` — (c13) shellcheck widened to skill scripts, hook lib and tests
+
+### Files added
+- `core/skills/parallel-work/scripts/merge-up-run.sh` — the one mutating step of /merge-up; verdicts and exit codes 0–7 (8 reserved)
+- `core/skills/parallel-work/scripts/stream-cleanup.sh` — dry run / `--apply` cleanup with `CLEANUP:` verdicts and pre-mutation keeps
+- `core/skills/parallel-work/references/messaging.md` — the four hints, addressing, delivery vocabulary and facts, watching
+- `core/skills/parallel-work/references/recovery.md` — symptom → cause → action
+- `core/hooks/tests/test-parallel-work-scripts.sh` — script suite (fixture path with a space and `#`; stubbed `claude`, `osascript`, `defaults`, `uname`, `wt.exe`, `wsl.exe`, `cygpath`)
+- `docs/reference/PARALLEL_WORK.md` — lifecycle, per-skill flows, message sequence, stream states, schema, platform matrix, honesty tables
+
+### Files removed
+- `core/hooks/worktree-bash-fix.sh` — never functioned (read the wrong payload field); subagent threads use absolute paths
+
 ### Project file changes
 None required. Existing `docs/sessions/.activity-log.jsonl` files need no
 migration — the new rotation applies on the next tool use.
 
+Optional: `.gitignore.framework` now lists `.mcp.json` and `.claude/worktrees/`; existing projects that keep `.mcp.json` untracked and want streams to receive a rewritten copy add it to their `.gitignore` (the script prints a `skip` line otherwise). Streams created by 3.0.x keep working: only `exosuitParent` is read; the story key is optional.
+
 ### Breaking changes
-None.
+- `EXOSUIT_WORKTREE_LAUNCH_CMD` is now the base command; the launcher appends `--name '<branch>'` and `-- '<first prompt>'`. A value that was a complete per-tab command line must drop everything after the claude invocation (or set `EXOSUIT_WORKTREE_NAME_SESSIONS=0` and `EXOSUIT_WORKTREE_FIRST_PROMPT=`).
+- `open-worktree-terminals.sh` exits 1 when any directory failed to open or no opener exists (was 0).
+- `/parallel-work start` refuses to fan out from inside a stream (was accepted in prose only) and no longer stops on a dirty base — it prints an ADVISORY and forks from HEAD.
+- `/merge-up` refuses a default-branch parent (the merge was allowed and only the push skipped) and refuses while behind the parent unless run with `--allow-behind`; a parent is never guessed from the branch name.
+- `/merge-down` no longer fetches from the remote by default.
 
 ## [5.0.1] - 2026-08-10
 

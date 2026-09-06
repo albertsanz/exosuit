@@ -324,7 +324,7 @@ The framework solves this with three ideas:
 - **[GitHub CLI](https://cli.github.com/)** (`gh`) for PR workflow and issue management
 - **A Claude plan that fits the workload.** Exosuit is thorough by design, and thoroughness spends tokens. **Claude Max is recommended** for daily development; Pro is enough to evaluate the framework on the Lean profile. See the [FAQ](#faq) for honest details.
 
-No language runtimes required. The framework itself is pure POSIX shell and markdown.
+No language runtimes required. The framework itself is pure POSIX shell and markdown (the parallel-work skill scripts are bash 3.2+; jq or python3 are optional and only improve session detection).
 
 ## FAQ
 
@@ -385,7 +385,7 @@ Everything is plain markdown and shell scripts. Edit directly:
 <details>
 <summary><strong>Does this support parallel work on multiple stories?</strong></summary>
 
-Yes, when the stories are independent. `/parallel-work` creates isolated streams (git worktrees) from your sprint branch, one story each, and checks first that the stories don't depend on each other or touch the same files. Inside a stream, `/merge-up` publishes finished work to the sprint branch and `/merge-down` pulls in what other streams have shipped. `/sprint-end` verifies every stream is merged before it ships, and cleans them up. Sequential single-branch work stays the default; parallel is opt-in.
+Yes, when the stories are independent. `/parallel-work` creates isolated streams (git worktrees) from your sprint branch, one story each, and checks first that the stories don't depend on each other or touch the same files. Inside a stream, `/merge-up` publishes finished work to the sprint branch and `/merge-down` pulls in what other streams have shipped. `/sprint-end` verifies every stream is merged before it ships, and cleans them up. Sequential single-branch work stays the default; parallel is opt-in. Streams open as named Claude sessions that greet the coordinator; /merge-up tells the others what landed. Terminal.app is exercised through a stubbed runner in tests; Windows Terminal, WSL, iTerm2, gnome-terminal and konsole arms are present but not verified by execution — reports welcome (#104).
 </details>
 
 <details>
