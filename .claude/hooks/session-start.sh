@@ -3,6 +3,10 @@
 # Validates project tools, detects stale state, checks git health.
 # Never blocks (advisory only, always exit 0).
 # POSIX-compliant — no bash required.
+#
+# Output: warnings on stderr. The ONLY stdout is the one-line "Stream:" banner
+# of the parallel-stream section below, printed inside a parallel stream
+# (SessionStart stdout is added to the model's context).
 
 HOOKS_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="$HOOKS_DIR/state"
@@ -103,6 +107,78 @@ if [ -f "CLAUDE.md" ]; then
     if grep -q '\[Project Name\]' CLAUDE.md 2>/dev/null && [ ! -f "docs/architecture/ARCHITECTURE.md" ]; then
         warn "Framework installed but not configured — run /quickstart to get started"
     fi
+fi
+
+# --- 5.5 Parallel-stream banner (stdout: the model sees it) ---
+# Inside a parallel stream (a worktree whose branch records
+# branch.<b>.exosuitParent, written by the parallel-work skill) print exactly
+# one line on stdout. For SessionStart, plain stdout is added to the model's
+# context, so this is the only stdout this hook writes; every warning above
+# stays on stderr. Silent outside a stream, on detached HEAD, without git, or
+# when the parent key is unset. Re-emitted on resume, /clear, compaction and
+# fork (three to four git calls; advisory context, never a gate).
+STREAM_LINE=""
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # Branch by full symbolic ref (never --short: a tag with the same name
+    # would print heads/<b>); empty on detached HEAD.
+    STREAM_REF=$(git symbolic-ref -q HEAD 2>/dev/null)
+    STREAM_B="${STREAM_REF#refs/heads/}"
+    STREAM_P=""
+    if [ -n "$STREAM_B" ]; then
+        STREAM_P=$(git config "branch.$STREAM_B.exosuitParent" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._/-' | cut -c1-120)
+    fi
+    if [ -n "$STREAM_P" ]; then
+        STREAM_S=$(git config "branch.$STREAM_B.exosuitStory" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._/ -' | cut -c1-60)
+        # behind = LEFT of --left-right --count (commits on the parent that
+        # this stream lacks); printed only when the count succeeds and is > 0.
+        STREAM_N=0
+        if STREAM_LR=$(git rev-list --left-right --count "refs/heads/$STREAM_P...HEAD" 2>/dev/null); then
+            STREAM_N="${STREAM_LR%%[!0-9]*}"
+        fi
+        case "$STREAM_N" in
+            ''|*[!0-9]*) STREAM_N=0 ;;
+        esac
+        # Default branch, same rule as worktree-status.sh: branch.<p>.remote,
+        # else origin when listed, else the first remote; that remote's HEAD
+        # symref with the remote prefix stripped; else local main, else
+        # local master; else none (no variant).
+        STREAM_R=$(git config "branch.$STREAM_P.remote" 2>/dev/null)
+        if [ -z "$STREAM_R" ]; then
+            STREAM_REMOTES=$(git remote 2>/dev/null)
+            if printf '%s\n' "$STREAM_REMOTES" | grep -qx origin; then
+                STREAM_R=origin
+            else
+                STREAM_R=$(printf '%s\n' "$STREAM_REMOTES" | head -1)
+            fi
+        fi
+        STREAM_DEF=""
+        if [ -n "$STREAM_R" ]; then
+            STREAM_DEF_REF=$(git symbolic-ref -q "refs/remotes/$STREAM_R/HEAD" 2>/dev/null)
+            STREAM_DEF="${STREAM_DEF_REF#"refs/remotes/$STREAM_R/"}"
+        fi
+        if [ -z "$STREAM_DEF" ]; then
+            if git show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+                STREAM_DEF=main
+            elif git show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+                STREAM_DEF=master
+            fi
+        fi
+        STREAM_LINE="Stream: $STREAM_B <- parent $STREAM_P"
+        if [ -n "$STREAM_S" ]; then
+            STREAM_LINE="$STREAM_LINE · story $STREAM_S"
+        fi
+        if [ "$STREAM_N" -gt 0 ]; then
+            STREAM_LINE="$STREAM_LINE · behind $STREAM_N — run /merge-down"
+        fi
+        if [ "$STREAM_P" = "$STREAM_DEF" ]; then
+            STREAM_LINE="$STREAM_LINE. Publish through a sprint branch and a pull request (/merge-up refuses the default branch), roster with /parallel-work."
+        else
+            STREAM_LINE="$STREAM_LINE. Publish with /merge-up, pull with /merge-down, roster with /parallel-work."
+        fi
+    fi
+fi
+if [ -n "$STREAM_LINE" ]; then
+    printf '%s\n' "$STREAM_LINE"
 fi
 
 # --- 6. Initialize session state ---
