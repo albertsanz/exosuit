@@ -35,9 +35,9 @@ Paste the whole output verbatim (table, overlap block if present, legend), then 
 
 ### 1. Preflight gate
 
-One call, the start event folded in front:
+One call:
 ```bash
-echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"parallel-work\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; bash "${CLAUDE_SKILL_DIR}/scripts/worktree-status.sh" --gate start
+bash "${CLAUDE_SKILL_DIR}/scripts/worktree-status.sh" --gate start
 ```
 
 <HARD-GATE>Any `GATE start: FAIL` line → STOP with that line. Relay every `ADVISORY:` line verbatim — a dirty base is an advisory: streams fork from HEAD.</HARD-GATE>
@@ -63,9 +63,9 @@ Branch names: `feat/<story-id>`, else `<base>-a`, `<base>-b`, … bumping past e
 
 ### 4. Open a terminal per stream
 
-AskUserQuestion `Open each stream in its own terminal running Claude?` (Yes / No). Yes → one call with ALL dirs, the end event appended:
+AskUserQuestion `Open each stream in its own terminal running Claude?` (Yes / No). Yes → one call with ALL dirs, carrying both events so a run that stopped at the gate or at the question logs neither:
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/open-worktree-terminals.sh" "<dir-a>" "<dir-b>" …; RC=$?; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"parallel-work\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; exit "$RC"
+echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"parallel-work\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; bash "${CLAUDE_SKILL_DIR}/scripts/open-worktree-terminals.sh" "<dir-a>" "<dir-b>" …; RC=$?; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"parallel-work\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; exit "$RC"
 ```
 
 No → the same call with `EXOSUIT_WORKTREE_TABS=0` in front. Each terminal runs `claude --name '<branch>' -- '/parallel-work hello'` (base command from `EXOSUIT_WORKTREE_LAUNCH_CMD`, default `claude`). "opened" means the terminal accepted the request — the HELLO that follows, or the Session column, is the evidence claude started. Relay every stderr `note:` line, including the permission-class note.
@@ -94,7 +94,7 @@ One call:
 bash "${CLAUDE_SKILL_DIR}/scripts/worktree-status.sh" --me
 ```
 
-Paste the 13 lines verbatim. Exit 2 → say `not a stream` and STOP (never invent a parent).
+Route on the output, not the exit code (2 carries three different states): 13 `key: value` lines → paste them verbatim, and on the stderr `not a stream: …` line say `not a stream` and STOP; no block at all → relay the stderr `ERROR:` line (not a git repository, or no temporary directory) and STOP. Never invent a parent.
 
 ### Hello 2. Find the coordinator
 
@@ -117,9 +117,9 @@ Calls: 1 Bash + 1 ListAgents + k SendMessage.
 
 ### Cleanup 1. Dry run
 
-One call, the start event folded in front:
+One call:
 ```bash
-echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"parallel-work\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; bash "${CLAUDE_SKILL_DIR}/scripts/stream-cleanup.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/stream-cleanup.sh"
 ```
 
 Paste every `CLEANUP:` verdict line verbatim. Relay a stderr `ADVISORY:` — it means live sessions cannot be seen; the user must close stream terminals by hand before confirming.
@@ -130,8 +130,10 @@ No `CLEANUP: remove` row → report and STOP. Else AskUserQuestion `Remove these
 
 If any BYE went out: AskUserQuestion `BYE sent to <names>. Close those terminals, then continue — a stream still live at that moment is kept, not removed.` (`Continue` / `Stop here`). `Stop here` → report "BYE sent to <names>; nothing removed" and STOP. `Continue` (or no BYE needed) → one call:
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/stream-cleanup.sh" --apply; RC=$?; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"parallel-work\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; exit "$RC"
+echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"parallel-work\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; bash "${CLAUDE_SKILL_DIR}/scripts/stream-cleanup.sh" --apply; RC=$?; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"parallel-work\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; exit "$RC"
 ```
+
+Both events ride this one call, so a dry run the user did not confirm logs neither a start nor an end rather than an unpaired start.
 
 A stream still live when `--apply` runs is kept (`CLEANUP: keep … a Claude session (<name>) is live there …`) — that is the guard, not an error: close the terminal and run cleanup again. There is no flag to override it; the manual valve is `git worktree remove <path>` once nothing runs there.
 

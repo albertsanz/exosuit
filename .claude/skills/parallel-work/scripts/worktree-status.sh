@@ -7,8 +7,11 @@
 #
 # Identity: the branch comes from the full symbolic ref (refs/heads/<b>); a
 # detached HEAD reads HEAD. A stream is a branch with branch.<b>.exosuitParent
-# recorded by new-worktree.sh; its story is branch.<b>.exosuitStory (free text:
-# control characters stripped, cut at 200 characters, "-" when empty).
+# recorded by new-worktree.sh; its story is branch.<b>.exosuitStory. Every free
+# text read out of config — story, recorded parent, branch.<b>.remote — has its
+# control characters stripped and is cut at 200 bytes ("-" when empty). Paths
+# are never stripped, because they are handed to git -C: a path holding a
+# control character is refused instead (see --me below).
 #
 # Stdout by mode:
 #   (default)   "## Worktree Status", a blank line, then the table
@@ -34,6 +37,9 @@
 #               parent_merge_in_progress: yes|no|?|-   remote: <name|->
 #               coordinator: live session(s) whose cwd is in parent_dir, ","-joined, or "-"
 #               peers: sibling streams' sessions (same parent, other branches), " "-separated, or "-"
+#               when this worktree's path or the parent's holds a control character no
+#               block is printed at all (a newline in one would forge extra key: lines
+#               that outrank the real ones): the ERROR below, exit 2
 #   --gate merge-up | --gate merge-down
 #               the 13 --me lines, then "GATE <name>: OK" or one "GATE <name>: FAIL — <reason>" line per problem
 #   --gate start
@@ -48,6 +54,7 @@
 #   GATE start: OK
 #   GATE children: OK
 #   GATE merge-up: FAIL — <reason>  /  GATE merge-down: FAIL — <reason>   reasons (both gates unless marked):
+#     worktree path contains a control character; unsupported   (printed alone, with no --me block)
 #     HEAD is detached — check out a branch
 #     no recorded parent — this is not a stream (set one with: git config branch.<B>.exosuitParent <parent>)
 #     recorded parent '<P>' does not exist locally
@@ -71,21 +78,26 @@
 #   ADVISORY: CHILD <c>: worktree <path> state unreadable (git status failed there)
 #   CHILD: none (no stream records <B> as its parent)
 #   GATE children: FAIL — <k> child stream(s) need attention
+#   GATE children: FAIL — HEAD is detached — check out a branch   (printed alone: a detached
+#     HEAD has no name for a child to record, so "none" would be a fail-open answer)
 #
 # Stderr:
 #   ADVISORY: session detection unavailable (<reason>) — Session reads '-', no message will be addressed, and cleanup's live-session guard cannot fire
 #     <reason> is one of: claude is not on PATH | claude agents --json failed | claude agents --json is not valid JSON | no JSON parser on PATH (install jq)
+#     an empty or all-whitespace answer counts as "not valid JSON", never as "no sessions"
 #     printed once per run; only the table, --porcelain, --me, --gate merge-up and --gate merge-down look for sessions
 #   not a stream: branch <B> has no recorded parent (branch.<B>.exosuitParent)   (--me only, after all 13 lines)
 #   unknown option: <x>
 #   usage: --gate merge-up|merge-down|children|start
 #   ERROR: not inside a git repository
 #   ERROR: cannot create a temporary directory   (mktemp -d failed; nothing on stdout)
+#   ERROR: worktree path contains a control character; unsupported   (--me only; nothing on stdout)
 #
 # Exit codes:
 #   0  ok (table, --porcelain, --me inside a stream, GATE <name>: OK)
 #   1  at least one GATE <name>: FAIL line was printed
-#   2  usage: unknown option, bad gate name, not inside a git repository, no temporary directory, or --me outside a stream
+#   2  usage: unknown option, bad gate name, not inside a git repository, no temporary directory,
+#      --me outside a stream, or --me where a worktree path holds a control character
 #
 # Degradation is never silent: "?" in any count or tree cell, "-" in any empty
 # cell, the stderr ADVISORY above. No "set -e": a failing lookup degrades to
@@ -150,18 +162,36 @@ B=${ref#refs/heads/}
 # nz <value>: "-" when empty
 nz () { if [ -n "$1" ]; then printf '%s' "$1"; else printf '%s' "-"; fi; }
 
-# parent_of <branch>: recorded parent, "-" when none (HEAD never has one)
+# has_ctrl <value>: true when the value holds a C0 control character or DEL.
+# The subshell pins LC_ALL so [[:cntrl:]] is the C set in every caller locale.
+has_ctrl () (
+  export LC_ALL=C
+  case "$1" in *[[:cntrl:]]*) return 0 ;; esac
+  return 1
+)
+
+# blank <value>: true when the value is empty or nothing but whitespace.
+blank () (
+  export LC_ALL=C
+  case "$1" in *[![:space:]]*) return 1 ;; esac
+  return 0
+)
+
+# parent_of <branch>: recorded parent, "-" when none (HEAD never has one).
+# Free text from config, so it is filtered like story_of: a raw value would
+# forge extra "key: value" lines in the --me block for a first-match reader.
 parent_of () {
   local p
   [ "$1" != HEAD ] || { printf '%s' "-"; return; }
-  p=$(git config "branch.$1.exosuitParent" 2>/dev/null) || p=""
+  p=$(git config "branch.$1.exosuitParent" 2>/dev/null | LC_ALL=C tr -d '\000-\037\177' | LC_ALL=C cut -b1-200) || p=""
   nz "$p"
 }
 
-# story_of <branch>: sanitised story, "-" when empty
+# story_of <branch>: sanitised story, "-" when empty. Both filters are pinned
+# to LC_ALL=C, so the cut is 200 bytes in every locale.
 story_of () {
   local s
-  s=$(git config "branch.$1.exosuitStory" 2>/dev/null | LC_ALL=C tr -d '\000-\037\177' | cut -c1-200) || s=""
+  s=$(git config "branch.$1.exosuitStory" 2>/dev/null | LC_ALL=C tr -d '\000-\037\177' | LC_ALL=C cut -b1-200) || s=""
   nz "$s"
 }
 
@@ -225,15 +255,22 @@ age_of_sha () {
 # nz_q <value>: "?" when empty
 nz_q () { if [ -n "$1" ]; then printf '%s' "$1"; else printf '%s' "?"; fi; }
 
-# remote_of <branch>: branch.<b>.remote, else origin when listed, else the first remote, else "-"
+# remote_of <branch>: branch.<b>.remote, else origin when listed, else the first
+# remote, else "-". Filtered like story_of at the single exit point: both config
+# and a remote name are free text that would otherwise forge a "key: value" line.
 remote_of () {
-  local r remotes first
+  local r remotes
   r=$(git config "branch.$1.remote" 2>/dev/null) || r=""
-  if [ -n "$r" ]; then printf '%s' "$r"; return; fi
-  remotes=$(git remote 2>/dev/null) || remotes=""
-  if printf '%s\n' "$remotes" | grep -qx origin; then printf '%s' "origin"; return; fi
-  first=$(printf '%s\n' "$remotes" | head -n 1)
-  nz "$first"
+  if [ -z "$r" ]; then
+    remotes=$(git remote 2>/dev/null) || remotes=""
+    if printf '%s\n' "$remotes" | grep -qx origin; then
+      r=origin
+    else
+      r=$(printf '%s\n' "$remotes" | head -n 1)
+    fi
+  fi
+  r=$(printf '%s' "$r" | LC_ALL=C tr -d '\000-\037\177' | LC_ALL=C cut -b1-200)
+  nz "$r"
 }
 
 # default_branch <branch>: the remote's HEAD branch, else main/master when local, else "-"
@@ -322,6 +359,10 @@ sessions_tsv () {
   local raw
   command -v claude >/dev/null 2>&1 || { SESS_WHY="claude is not on PATH"; return 1; }
   raw="$(claude agents --json 2>/dev/null)" || { SESS_WHY="claude agents --json failed"; return 1; }
+  # An empty or all-whitespace answer is not JSON. jq exits 0 on it with no
+  # output, which would read as "no sessions anywhere" and silence the advisory;
+  # checked here so both parsers reject the same input.
+  blank "$raw" && { SESS_WHY="claude agents --json is not valid JSON"; return 1; }
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$raw" | jq -r 'if type != "array" then error("not an array") else . end
       | .[] | select((.cwd|type)=="string" and (.name|type)=="string")
@@ -491,6 +532,18 @@ print_porcelain () {
 # --- The 13-line --me block (also the head of --gate merge-up / merge-down) ------
 ME_P="-"; ME_PDIR="-"; ME_DIR="-"; ME_AHEAD="?"; ME_BEHIND="?"; ME_DIRTY="?"
 ME_PDIRTY="-"; ME_PMIP="-"; ME_REMOTE="-"; ME_COORD="-"; ME_PEERS="-"; ME_STORY="-"
+
+# refuse_ctrl_path: no honest block can be printed, so print none at all — in
+# the voice of the mode that asked for it. Called only from print_me.
+refuse_ctrl_path () {
+  if [ "$MODE" = gate ]; then
+    echo "GATE $GATE: FAIL — worktree path contains a control character; unsupported"
+    exit 1
+  fi
+  echo "ERROR: worktree path contains a control character; unsupported" >&2
+  exit 2
+}
+
 print_me () {
   local top i n peers statdir
   top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
@@ -500,6 +553,14 @@ print_me () {
   statdir=$ME_DIR; [ "$statdir" != "-" ] || statdir="."
   ME_P=$(parent_of "$B")
   ME_PDIR=$(wt_of "$ME_P")
+  # Fail closed before the first line is printed. A newline in either path emits
+  # extra "key: value" lines above the real ones, and every reader of this block
+  # takes the first match — that forges parent:/parent_dir: and walks a merge
+  # into the wrong branch. Do not strip: both values are handed to git -C, and a
+  # stripped path names a different directory.
+  if has_ctrl "$ME_DIR" || has_ctrl "$ME_PDIR"; then
+    refuse_ctrl_path
+  fi
   counts_of "$ME_P" "$B"
   ME_AHEAD=$C_AHEAD; ME_BEHIND=$C_BEHIND
   [ "$ME_AHEAD" != "-" ] || ME_AHEAD="?"
@@ -609,6 +670,13 @@ gate_start () {
 
 gate_children () {
   local list key val c path n k any d
+  # A detached HEAD has no branch name for a child to record, so the roster
+  # below would find none and answer "no streams" — a fail-open the other three
+  # gates do not have. Refuse it the way they do.
+  if [ "$B" = HEAD ]; then
+    fail "HEAD is detached — check out a branch"
+    exit 1
+  fi
   list=$(git config --get-regexp '^branch\..*\.exosuitparent$' 2>/dev/null) || list=""
   k=0; any=0
   while read -r key val; do

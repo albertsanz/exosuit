@@ -48,6 +48,7 @@ These files are generic framework components. On upgrade, they are replaced with
 | `run-all.sh` | Test runner (runs every file, summarises failures) |
 | `test-hook-guard.sh` | Hook guard (profile + disable) tests |
 | `test-install.sh` | Installer tests |
+| `test-parallel-work-launcher.sh` | Parallel-work launcher tests: `open-worktree-terminals.sh` argv, knobs and refusals (private PATH of stubs; no terminal opened, no claude started) |
 | `test-parallel-work-scripts.sh` | Parallel-work skill script tests (stubbed claude, osascript, uname, wt.exe) |
 | `test-post-edit-format.sh` | Post-edit format hook tests |
 | `test-post-tool-use.sh` | Post-tool-use hook tests |

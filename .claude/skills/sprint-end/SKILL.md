@@ -10,7 +10,7 @@ micro-components:
   step-2: [quality-gate-sequence]
 disable-model-invocation: true
 user-invocable: true
-allowed-tools: Read, Glob, Grep, Bash, Edit, Write, AskUserQuestion
+allowed-tools: Read, Glob, Grep, Bash, Edit, Write, AskUserQuestion, ListAgents, SendMessage
 ---
 ______________________________________________________________________
 
@@ -467,7 +467,7 @@ bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/worktree-status.sh" --gate ch
 bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/stream-cleanup.sh"
 ```
 
-Paste both outputs. If any `CLEANUP: remove` row exists, ask (AskUserQuestion) `Remove these streams?`; on Yes, for every `remove … live-session=<name>` row send BYE (body: `${CLAUDE_SKILL_DIR}/../parallel-work/references/messaging.md` section `### BYE`; recipients per its `## Addressing`), then ask `BYE sent to <names>. Close those terminals, then continue — a stream still live at that moment is kept, not removed.` (Continue / Stop here), then run `bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/stream-cleanup.sh" --apply` and paste it. Close every stream terminal before this step: a stream kept here (`keep … live there`, dirty, or upstream-blocked) survives the sprint, and after the squash merge `git branch -d` no longer recognises it as merged — it must then be removed by hand (safe delete refuses; force-deleting is blocked by the framework's git hooks on purpose). For a stream the user chose to abandon, leave it and report it.
+Paste both outputs. If any `CLEANUP: remove` row exists, ask (AskUserQuestion) `Remove these streams?`; on Yes, for every `remove … live-session=<name>` row send BYE (body: `${CLAUDE_SKILL_DIR}/../parallel-work/references/messaging.md` section `### BYE`, summary `bye <branch>`; `ListAgents` now, then one `SendMessage` per listed name), then ask `BYE sent to <names>. Close those terminals, then continue — a stream still live at that moment is kept, not removed.` (Continue / Stop here), then run `bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/stream-cleanup.sh" --apply` and paste it. Close every stream terminal before this step: a stream kept here (`keep … live there`, dirty, or upstream-blocked) survives the sprint, and after the squash merge `git branch -d` no longer recognises it as merged — it must then be removed by hand (safe delete refuses; force-deleting is blocked by the framework's git hooks on purpose). For a stream the user chose to abandon, leave it and report it.
 
 Once CI is green (or local gates passed) and any required reviews are complete:
 

@@ -18,7 +18,11 @@
 #
 # Copies into the new worktree, never overwriting an existing file: .env,
 # .env.local, .claude/settings.local.json, CLAUDE.local.md, then every
-# colon-separated repo-relative path in EXOSUIT_WORKTREE_COPY.
+# colon-separated repo-relative path in EXOSUIT_WORKTREE_COPY. A destination
+# that is itself a symlink is left alone (a dangling one would be written
+# through), and after the parent directory is made its physical path must
+# still be inside the worktree or the copy is skipped: a committed symlink on
+# the base branch never redirects a copy out of the new worktree.
 # .mcp.json: tracked on the new branch -> left alone; untracked and gitignored
 # in the main worktree -> copied with the main worktree's absolute root path
 # rewritten to the new worktree (physical and logical spellings, one awk
@@ -36,6 +40,7 @@
 #      no parent recorded (--no-parent): a standalone worktree, not a stream
 #      recorded story: branch.<b>.exosuitStory = <id>
 #      copied  <rel>
+#      skip    <rel> (destination leaves the worktree via a symlink)
 #      skip    .mcp.json (tracked on <b> — left as-is)
 #      skip    .mcp.json (untracked and not gitignored in the main worktree — add it to .gitignore so streams get a rewritten copy, or copy it by hand)
 #      wrote   .mcp.json (absolute paths rewritten to worktree)
@@ -50,6 +55,7 @@
 #   ERROR: unknown option <x>
 #   ERROR: --story needs a value
 #   ERROR: --story must not contain control characters
+#   ERROR: <worktree-dir> must not contain control characters
 #   ERROR: not inside a git repository
 #
 # stderr, exit 1 (refusals, checked in this order, before any mutation):
@@ -83,14 +89,30 @@ has_control_chars () (
   return 1
 )
 
-# copy <rel> from the main worktree into the new one; never overwrites
+# copy <rel> from the main worktree into the new one; never overwrites, and
+# never writes outside the worktree. -e follows symlinks, so a committed
+# dangling link at the destination reads as absent and cp would write through
+# it; -L catches that leaf. A committed symlink on a parent directory is not a
+# leaf at all -- mkdir -p resolves through it -- so the directory that will
+# hold the file is compared physically against the worktree after it is made.
 copy_if_present () {
-  local rel="$1"
-  if [ -e "$MAIN_ROOT/$rel" ] && [ ! -e "$WORKTREE_DIR/$rel" ]; then
-    mkdir -p "$(dirname "$WORKTREE_DIR/$rel")"
-    cp -R "$MAIN_ROOT/$rel" "$WORKTREE_DIR/$rel"
-    echo "   copied  $rel"
-  fi
+  local rel="$1" dest="$WORKTREE_DIR/$1"
+  local destdir wt_phys dd_phys
+  [ -e "$MAIN_ROOT/$rel" ] || return 0
+  if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi
+  destdir="$(dirname "$dest")"
+  mkdir -p "$destdir"
+  wt_phys="$(cd "$WORKTREE_DIR" && pwd -P)" || return 0
+  dd_phys="$(cd "$destdir" && pwd -P)" || return 0
+  case "$dd_phys/" in
+    "$wt_phys"/*) ;;
+    *)
+      echo "   skip    $rel (destination leaves the worktree via a symlink)"
+      return 0
+      ;;
+  esac
+  cp -R "$MAIN_ROOT/$rel" "$dest"
+  echo "   copied  $rel"
 }
 
 # --- Arguments -------------------------------------------------------------
@@ -140,6 +162,14 @@ done
 
 if [ -n "$STORY" ] && has_control_chars "$STORY"; then
   echo "ERROR: --story must not contain control characters" >&2
+  exit 2
+fi
+
+# Checked on the argument, before it is absolutised: a newline in a worktree
+# path forges extra "key: value" lines in the --me block every other script
+# reads, and the path is handed to git -C, so it cannot be stripped either.
+if [ -n "$DIR_ARG" ] && has_control_chars "$DIR_ARG"; then
+  echo "ERROR: <worktree-dir> must not contain control characters" >&2
   exit 2
 fi
 

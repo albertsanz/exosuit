@@ -46,7 +46,7 @@ Install it once. Run `/quickstart`. Start building. The framework provides that 
 
 ### What It Is
 
-A drop-in development framework for Claude Code that provides 45 skills (slash commands), 13 hook scripts, path-scoped rules, quality gates, backlog management, session continuity, 8 native agents with deterministic tool restrictions for multi-perspective review, 20 reusable prompt snippets, deep guided elicitation with 11 project archetypes, and a persistent project knowledge base, all as markdown and shell scripts that live inside the repository.
+A drop-in development framework for Claude Code that provides 45 skills (slash commands), 12 hook scripts, path-scoped rules, quality gates, backlog management, session continuity, 8 native agents with deterministic tool restrictions for multi-perspective review, 20 reusable prompt snippets, deep guided elicitation with 11 project archetypes, and a persistent project knowledge base, all as markdown and shell scripts that live inside the repository.
 
 ### Who It's For
 
@@ -2514,10 +2514,11 @@ project-root/
 │   │   ├── lib/hook-guard.sh         # Profile-based hook gating
 │   │   ├── lib/paths.sh              # Shell path resolution
 │   │   ├── state/                     # Ephemeral state (project-profile, stop-iteration)
-│   │   └── tests/                    # Hook test suite (10 test scripts + run-all.sh)
+│   │   └── tests/                    # Hook test suite (11 test scripts + run-all.sh)
 │   │       ├── run-all.sh, test-hook-guard.sh, test-install.sh
-│   │       ├── test-parallel-work-scripts.sh, test-post-edit-format.sh
-│   │       ├── test-post-tool-use.sh, test-pre-tool-use.sh, test-session-start.sh
+│   │       ├── test-parallel-work-launcher.sh, test-parallel-work-scripts.sh
+│   │       ├── test-post-edit-format.sh, test-post-tool-use.sh
+│   │       ├── test-pre-tool-use.sh, test-session-start.sh
 │   │       ├── test-status-line.sh, test-stop.sh, test-user-prompt.sh
 │   │
 │   ├── prompts/                      # 20 prompt snippets & micro-components

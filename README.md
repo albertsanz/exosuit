@@ -200,7 +200,7 @@ TRIVIAL changes fast-track through a single lite pass. High-risk changes get ext
 Three layers, from most to least deterministic:
 
 <p align="center">
-  <img src="assets/diagram-architecture.svg" alt="Three layers: Enforcement (deterministic, cannot be skipped) with 13 hook scripts and 9 auto-loaded rules; Workflow (advisory, adapts to risk) with 45 slash commands and 9 native agents; Documentation (context that persists) with CLAUDE.md, progress.md, knowledge base and session handoffs." width="100%">
+  <img src="assets/diagram-architecture.svg" alt="Three layers: Enforcement (deterministic, cannot be skipped) with 12 hook scripts and 9 auto-loaded rules; Workflow (advisory, adapts to risk) with 45 slash commands and 9 native agents; Documentation (context that persists) with CLAUDE.md, progress.md, knowledge base and session handoffs." width="100%">
 </p>
 
 Key insight: the enforcement layer is deterministic; hooks are shell scripts that the AI cannot bypass. The workflow layer is advisory; it guides but doesn't force. When something *must* happen, it lives in enforcement.

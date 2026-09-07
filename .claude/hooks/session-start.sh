@@ -114,9 +114,10 @@ fi
 # branch.<b>.exosuitParent, written by the parallel-work skill) print exactly
 # one line on stdout. For SessionStart, plain stdout is added to the model's
 # context, so this is the only stdout this hook writes; every warning above
-# stays on stderr. Silent outside a stream, on detached HEAD, without git, or
-# when the parent key is unset. Re-emitted on resume, /clear, compaction and
-# fork (three to four git calls; advisory context, never a gate).
+# stays on stderr. Silent outside a stream, on detached HEAD, without git, when
+# the parent key is unset, and when the recorded parent is not a name a git ref
+# can have (that last one says why on stderr). Re-emitted on resume, /clear,
+# compaction and fork (three to four git calls; advisory context, never a gate).
 STREAM_LINE=""
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     # Branch by full symbolic ref (never --short: a tag with the same name
@@ -125,7 +126,25 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     STREAM_B="${STREAM_REF#refs/heads/}"
     STREAM_P=""
     if [ -n "$STREAM_B" ]; then
-        STREAM_P=$(git config "branch.$STREAM_B.exosuitParent" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._/-' | cut -c1-120)
+        # Reject the recorded parent, never rewrite it. A value with characters
+        # filtered out of it names a different branch, or none at all, and
+        # announcing that as this stream's parent is worse than saying nothing:
+        # the behind count against it cannot resolve, so the "run /merge-down"
+        # nudge disappears with no explanation (release/2.0+rc1 was announced as
+        # release/2.0rc1 before this). Control characters, DEL and space can
+        # never appear in a ref (git-check-ref-format rejects all three), and
+        # they are also the bytes that could forge or pad a line of the model's
+        # context, so a parent holding one is not announced at all — one stderr
+        # warning instead. Everything a ref may hold ('+', non-ASCII) prints
+        # verbatim, bounded to 120 characters as before.
+        STREAM_P_RAW=$(git config "branch.$STREAM_B.exosuitParent" 2>/dev/null)
+        if [ -n "$STREAM_P_RAW" ]; then
+            if [ "$STREAM_P_RAW" = "$(printf '%s' "$STREAM_P_RAW" | LC_ALL=C tr -d '\000-\040\177')" ]; then
+                STREAM_P=$(printf '%s' "$STREAM_P_RAW" | cut -c1-120)
+            else
+                warn "Parallel-stream banner suppressed: branch.$STREAM_B.exosuitParent holds a control character, DEL or space, which no git ref can — re-record it with: git config branch.$STREAM_B.exosuitParent '<parent>'"
+            fi
+        fi
     fi
     if [ -n "$STREAM_P" ]; then
         STREAM_S=$(git config "branch.$STREAM_B.exosuitStory" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._/ -' | cut -c1-60)

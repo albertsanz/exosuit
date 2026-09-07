@@ -23,29 +23,29 @@ After a MERGED message, or a session banner that says `behind`, once the current
 
 ### Step 1 — Gate
 
-One call, the start event folded in front:
+One call, no event — a run that stops here logs nothing:
 ```bash
-echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"merge-down\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/worktree-status.sh" --gate merge-down
+bash "${CLAUDE_SKILL_DIR}/../parallel-work/scripts/worktree-status.sh" --gate merge-down
 ```
 
-Paste it verbatim. Any `GATE merge-down: FAIL` line → STOP with the line. `behind: 0` → say "already up to date with <parent>" and STOP. The gate measures against the LOCAL parent ref, which already holds every local `/merge-up`. Only from this `behind: 0` stop, and only when the user says the parent was pushed from another machine: `git fetch <remote> "<parent>"` (never by default — a fetch moves `origin/*` for every worktree) and merge `<remote>/<parent>` in Step 2 instead of `<parent>`; the gate does not compare against it.
+Paste it verbatim. Any `GATE merge-down: FAIL` line → STOP with the line. `behind: 0` → say "already up to date with <parent>" and STOP. The gate measures against the LOCAL parent ref, which already holds every local `/merge-up`. Only from this `behind: 0` stop, and only when the user says the parent was pushed from another machine: `git fetch <remote> "<parent>"` (never by default — a fetch moves `origin/*` for every worktree) and merge `<remote>/<parent>` in Step 2 in place of both `refs/heads/<parent>` revisions; the gate does not compare against it.
 
 ### Step 2 — Merge the parent into this stream
 
-One call — `;`, not `&&`, so the recount and the event run on a conflict too:
+One call — the start event in front so both events belong to the mutating step; `;`, not `&&`, so the recount, the sha and the end event run on a conflict too. Both revisions are spelled in full: a tag sharing the parent's name wins a bare name lookup and merges the wrong ref.
 ```bash
-git merge --no-edit "<parent>"; RC=$?; git rev-list --left-right --count "<parent>...HEAD"; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"merge-down\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl
+echo "{\"type\":\"skill\",\"event\":\"start\",\"skill\":\"merge-down\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl; git merge --no-edit "refs/heads/<parent>"; RC=$?; git rev-list --left-right --count "refs/heads/<parent>...HEAD"; git rev-parse --short HEAD; O=success; [ "$RC" -eq 0 ] || O="exit-$RC"; echo "{\"type\":\"skill\",\"event\":\"end\",\"skill\":\"merge-down\",\"outcome\":\"$O\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> docs/sessions/.activity-log.jsonl
 ```
 
-- `Already up to date.` → Step 3.
-- Fast-forward or a merge commit → Step 3 with the counts (left = behind, right = ahead).
-- Conflict → do NOT abort. Run `git diff --name-only --diff-filter=U`, then AskUserQuestion `Resolve now (git add … && git commit) or back out (git merge --abort)?`. Always state which state the tree is in.
+- `Already up to date.` → Step 3 with the counts (left = behind, right = ahead).
+- Fast-forward or a merge commit → Step 3 with the counts and the sha7 (`Merge branch 'refs/heads/…'` is the expected subject).
+- Conflict → do NOT abort. Run `git diff --name-only --diff-filter=U`, then AskUserQuestion `Resolve now (git add … && git commit) or back out (git merge --abort)?`. Always state which state the tree is in; here the counts are the unmerged ones and the sha7 is the pre-merge HEAD, never a merge commit.
 
 ### Step 3 — Report
 ```markdown
 ### Merge-down: <parent> → <branch>
 **Result:** already up to date | fast-forward | merge commit <sha7> | conflict (<n> files)
-**Now:** +<ahead> ahead, 0 behind
+**Now:** +<ahead> ahead, <behind> behind
 **Tree:** clean | merge in progress
 ```
 
@@ -54,7 +54,7 @@ git merge --no-edit "<parent>"; RC=$?; git rev-list --left-right --count "<paren
 - Gate before merge; a FAIL line stops the skill. The gate refuses before any mutation; every STOP above is prose the model follows — nothing prevents a human from running git directly.
 - Never fetch by default; the fetch path only from the `behind: 0` stop, on the user's say-so.
 - Never abort a conflicted merge unasked; offer both paths.
-- Read-only on the parent: no `git -C <parent_dir>` command, ever.
+- Read-only on the parent: its ref and its worktree are never written; the gate's own reads there (`status`, `rev-parse`) are the only commands that run in it.
 - Every report states the tree's state.
 
 ## Recovery

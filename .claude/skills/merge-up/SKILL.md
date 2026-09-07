@@ -14,7 +14,7 @@ ______________________________________________________________________
 
 ## merge-up
 
-A true merge of this stream's branch into its recorded parent, run from the parent's worktree; the stream then fast-forwards to the parent. Asks before pushing the parent. Tells the coordinator and live sibling streams what landed — a hint, never approval.
+Merges this stream's branch into its recorded parent, run from the parent's worktree — a fast-forward when the parent has not moved, a merge commit when it has; the stream then fast-forwards to the parent. Asks before pushing the parent. Tells the coordinator and live sibling streams what landed — a hint, never approval.
 Diagrams and the full schema for humans: docs/reference/PARALLEL_WORK.md (never loaded here).
 
 ### Step 1 — Run the merge
@@ -31,13 +31,14 @@ Paste the whole output verbatim (stderr included), then route on it — the firs
 | `MERGE: nothing-to-merge` | Step 4 |
 | `MERGE: behind` | AskUserQuestion `Run /merge-down first (recommended), or merge anyway with --allow-behind (a true merge)?`; re-run with the flag only on the second answer |
 | `MERGE: merged` + `files:` + `SYNC: ok` | Step 2 |
-| `MERGE: refused` | STOP; the git line names the cause; nothing of yours is on the parent |
+| `MERGE: refused` | STOP and relay the verdict line verbatim; its own text says whether the parent was left changed or the merge landed elsewhere — add no claim of your own |
 | `MERGE: locked` | STOP; retry in a minute; never delete the lock |
-| `MERGE: busy` | STOP; a sibling's merge is in progress; retry later |
-| `MERGE: blocked` | STOP; name the files; the parent worktree's owner moves them aside |
-| `MERGE: conflict` | STOP with the paths; offer to help resolve in the parent worktree, never automatically |
+| `MERGE: busy` | STOP and relay the line; it says whose merge is unfinished — a sibling's (retry later) or this stream's own, after its branch moved during the run (finish or abort it there first) |
+| `MERGE: blocked` | STOP; name the files and relay the verdict's own remedy — untracked files are moved aside in the parent worktree, uncommitted changes to tracked ones are committed or stashed by their owner |
+| `MERGE: conflict` | STOP with the paths; the merge is already aborted, so offer to resolve here or in the parent worktree, never automatically. When the line adds that uncommitted tracked changes remain there and they are not this merge's, say so and leave them alone |
 | `SYNC: FAIL` | STOP; the parent merge stands; the user decides |
-| no `MERGE:` line, stderr `unknown option`, exit 2 | the call was mistyped; fix it, do not retry blindly |
+| no verdict line, stderr `unknown option`, exit 2 | the call was mistyped; fix it, do not retry blindly |
+| no verdict line and no `unknown option` (a stderr `ERROR:` line, or nothing at all) | STOP and relay what was printed verbatim; the call was not mistyped — the sibling script or the repository is the problem; make no claim about the parent's state |
 
 <HARD-GATE>Never stash for the user, never delete `index.lock` or `MERGE_HEAD`, never guess a parent from a branch name, never merge by hand.</HARD-GATE>
 
@@ -54,15 +55,15 @@ Skipped on `MERGE: nothing-to-merge`. Recipients = the `coordinator:` and `peers
 ### Merge-up: <branch> → <parent>
 **Merged:** <sha7>, <N> commit(s), <M> file(s)
 **Pushed:** yes to <remote> | no | skipped (no remote)
-**Stream:** synced (0 behind)
+**Stream:** synced (0 behind) | unchanged (<behind> behind — run /merge-down)
 **Notified:** <name> (delivered), <name> (held) | none (no live session in <parent_dir>) | none (ListAgents unavailable)
 ```
 
-Every value comes from this run's output. After `MERGE: nothing-to-merge`: `**Merged:** nothing (0 ahead)` and `**Notified:** not-attempted(nothing to merge)`.
+Every value comes from this run's output. `**Stream:** synced (0 behind)` only after `SYNC: ok`, or after `MERGE: nothing-to-merge` whose pasted `behind:` line reads 0; any other `behind:` value → `unchanged (<behind> behind — run /merge-down)`. After `MERGE: nothing-to-merge` also: `**Merged:** nothing (0 ahead)` and `**Notified:** not-attempted(nothing to merge)`.
 
 ## Rules
 
-- One script call decides; the model never merges, stashes, aborts or unlocks by hand. The script refuses before any mutation; every STOP above is prose the model follows — nothing prevents a human from running git directly.
+- One script call decides; the model never merges, stashes, aborts or unlocks by hand. The gate refuses before any mutation, and after it a refusal may still have left the parent changed — the verdict line says which; every STOP above is prose the model follows — nothing prevents a human from running git directly.
 - A parent comes from `branch.<b>.exosuitParent` or not at all — never from a branch name.
 - No push without the question, never with `--force`.
 - MERGED once per merge, to the names listed now; never on nothing-to-merge, never per commit.
@@ -73,10 +74,10 @@ Every value comes from this run's output. After `MERGE: nothing-to-merge`: `**Me
 | Symptom | Action |
 |---------|--------|
 | gate FAIL | fix the named cause, re-run |
-| `refused` | read the git line: `merge.ff=only` on the parent, or a hook; nothing changed |
+| `refused` | read the printed line: `merge.ff=only` or a hook says `(nothing changed)`; any other text means the parent worktree moved — `git -C <parent_dir> status` and `git -C <parent_dir> log -1` before touching anything |
 | `locked` | a sibling's git is running. A genuinely stale lock: confirm with `ps` that no git process runs in the parent worktree, then remove the lock file by hand — the skill never does |
-| `busy` | wait for the sibling's merge to finish |
-| `blocked` | move the listed untracked files aside in the parent worktree |
+| `busy` | a sibling's merge: wait for it. This stream's own branch moved during the run: finish or abort that merge in the parent worktree, then retry — waiting never clears it |
+| `blocked` | the verdict names the files and which kind they are: untracked → move them aside in the parent worktree; tracked with uncommitted changes → their owner commits or stashes them there — never `restore` or delete someone's edit |
 | `conflict` | resolve in the parent worktree with its human, or `/merge-down` first so the conflict surfaces here |
 | `SYNC: FAIL` | the merge stands; `git merge --ff-only <parent>` after the named fix |
 | push rejected | pull/merge the remote first; never force |

@@ -24,7 +24,6 @@
 #   CLEANUP: keep <b> <path> — worktree state unreadable (git status failed there); if the directory is gone, --apply's prune will drop the entry
 #   CLEANUP: keep <b> <path> — tree is dirty: commit or stash there first
 #   CLEANUP: keep <b> <path> — its upstream <r>/<b> is behind it, so git's safe delete would refuse the branch: push it (git push <r> <b>) or drop the upstream (git branch --unset-upstream <b>), then re-run
-#   CLEANUP: keep <b> <path> — its upstream <r>/<b> no longer exists, and git's safe delete may refuse the branch: drop the upstream (git branch --unset-upstream <b>), then re-run
 #   CLEANUP: keep <b> <path> — a Claude session (<name>) is live there; removing it now would delete that session's working directory. Close that terminal, then re-run --apply
 #                                                    (the live-session keep fires under --apply only; it cannot fire while the ADVISORY says detection is unavailable)
 #   CLEANUP: remove <b> <path>                       (dry run: would be removed by --apply)
@@ -39,16 +38,24 @@
 #   ERROR: not inside a git repository
 #   ERROR: worktree-status.sh not found next to this script
 #   ERROR: malformed porcelain row from worktree-status.sh (expected 8 TAB-separated fields): <row>
+#   ERROR: the worktree-status.sh fact source produced no rows; nothing was examined
 #   ADVISORY: session detection unavailable (...)    (and anything else worktree-status.sh writes to stderr)
 # Exit codes:
 #   0  dry run (keeps are not failures), or --apply with no FAILED line
 #   1  --apply with at least one FAILED line
-#   2  usage error, not inside a git repository, sibling script missing, malformed porcelain
+#   2  usage error, not inside a git repository, sibling script missing,
+#      malformed porcelain, fact source produced no rows
 #
-# Under --apply and before git worktree remove, the stream's
-# docs/sessions/.activity-log.jsonl (gitignored) is appended to the main
-# worktree's log: git worktree remove fires no WorktreeRemove hook. Git's hint:
-# lines are never printed; a FAILED line quotes git's first non-empty line only.
+# Under --apply and before git worktree remove, the stream's gitignored
+# append-only session state — docs/sessions/.activity-log.jsonl,
+# .failure-log.jsonl, .story-outcomes.tsv, .audit-log.jsonl, .refine-log.tsv,
+# .optimization-log.tsv — is appended to the main worktree's copy of each:
+# git worktree remove fires no WorktreeRemove hook, so the whole directory
+# would otherwise go with the worktree. A file that is a symlink on either
+# side is skipped rather than followed, and each stream file is emptied once
+# its lines have landed, so a refused removal does not append them twice on
+# the next run. Git's hint: lines are never printed; a FAILED line quotes
+# git's first non-empty line only.
 set -uo pipefail
 
 unset CDPATH
@@ -198,7 +205,12 @@ while IFS= read -r row; do
     continue
   fi
 
-  # 8. upstream keeps: git branch -d judges "merged" against the upstream when one is set.
+  # 8. upstream keep: git branch -d judges "merged" against the upstream when
+  #    one is set and resolves. When it no longer resolves — the ordinary end
+  #    of a stream here: pushed with -u, pull request merged, remote branch
+  #    deleted, git fetch --prune — git falls back to HEAD and deletes
+  #    normally, so there is nothing to keep for. A refusal we did not predict
+  #    is reported downstream as CLEANUP: FAILED, never forced.
   merge_ref="$(git config "branch.$b.merge" 2>/dev/null || true)"
   if [ -n "$merge_ref" ]; then
     r="$(git config "branch.$b.remote" 2>/dev/null || true)"
@@ -209,9 +221,6 @@ while IFS= read -r row; do
         keep "$b" "$path" "its upstream $r/$b is behind it, so git's safe delete would refuse the branch: push it (git push $r $b) or drop the upstream (git branch --unset-upstream $b), then re-run"
         continue
       fi
-    else
-      keep "$b" "$path" "its upstream $r/$b no longer exists, and git's safe delete may refuse the branch: drop the upstream (git branch --unset-upstream $b), then re-run"
-      continue
     fi
   fi
 
@@ -231,11 +240,27 @@ while IFS= read -r row; do
     continue
   fi
 
-  # 11a. keep the stream's activity log: git worktree remove fires no WorktreeRemove hook.
-  if [ -f "$path/docs/sessions/.activity-log.jsonl" ]; then
+  # 11a. keep the stream's append-only session state: git worktree remove fires
+  #      no WorktreeRemove hook, so the whole gitignored docs/sessions/ goes
+  #      with the directory. Only append-only files are listed — concatenation
+  #      is their merge; the snapshot files there (.auto-save.md,
+  #      .failure-state.md) would be nonsense concatenated, so they are not
+  #      rescued. A symlink on either side is skipped, never followed: cat
+  #      would read some other file into the base log, and when both sides are
+  #      the same file it would grow until the disk fills. Each stream file is
+  #      emptied only once its lines have actually landed, so a refused removal
+  #      (11b) leaves nothing to append twice on the next --apply.
+  for f in .activity-log.jsonl .failure-log.jsonl .story-outcomes.tsv \
+           .audit-log.jsonl .refine-log.tsv .optimization-log.tsv; do
+    src="$path/docs/sessions/$f"
+    dst="$MAIN_ROOT/docs/sessions/$f"
+    [ -f "$src" ] && [ ! -L "$src" ] || continue
+    [ ! -L "$dst" ] || continue
     mkdir -p "$MAIN_ROOT/docs/sessions" 2>/dev/null || true
-    cat "$path/docs/sessions/.activity-log.jsonl" >> "$MAIN_ROOT/docs/sessions/.activity-log.jsonl" 2>/dev/null || true
-  fi
+    if cat "$src" >> "$dst" 2>/dev/null; then
+      : > "$src" 2>/dev/null || true
+    fi
+  done
 
   # 11b. remove the worktree (never --force).
   if ! out="$(git worktree remove "$path" 2>&1 </dev/null)"; then
@@ -256,6 +281,16 @@ while IFS= read -r row; do
     ANY_FAILED=1
   fi
 done < <(bash "$STATUS" --porcelain)
+
+# A process substitution's exit status is unreachable, so a dead fact source
+# (unreadable sibling, a failed mktemp inside it, a truncated install) would
+# otherwise look byte-for-byte like a healthy repository with no streams. The
+# main worktree is always a row, even in a bare repository, so zero rows can
+# only mean the source never spoke.
+if [ "$ROW" -eq 0 ]; then
+  echo "ERROR: the worktree-status.sh fact source produced no rows; nothing was examined" >&2
+  exit 2
+fi
 
 # 12. --apply end: prune stale entries and report the count.
 if [ "$APPLY" -eq 1 ]; then

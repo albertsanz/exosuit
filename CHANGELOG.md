@@ -193,7 +193,7 @@ covered by stubbed-binary tests only and are not verified by execution here.
 - `core/skills/sprint-end/SKILL.md` — step 1 `--gate children`; step 6 scripted cleanup before the squash merge; 2.10.1 → 2.11.0
 - `core/skills/sprint-start/SKILL.md` — `--worktree` via `new-worktree.sh sprint-<n> --no-parent`; 2.7.1 → 2.8.0
 - `core/skills/story-cycle/SKILL.md`, `core/skills/story-cycle/references/parallel-streams.md` — `/parallel-work create` → `start`; bridge to /merge-up and /merge-down
-- `core/hooks/session-start.sh` — `Stream:` banner with a `behind` count on stdout inside a stream
+- `core/hooks/session-start.sh` — `Stream:` banner with a `behind` count on stdout inside a stream; the recorded parent is printed as recorded or not at all (a value holding a control character, DEL or space — bytes no git ref can hold — suppresses the banner and prints one stderr reason, instead of being filtered into the name of some other branch)
 - `core/hooks/worktree.sh` — WorktreeCreate arm removed (it printed no path and aborted native `claude --worktree` creation while registered); hook guard added
 - `core/settings.json`, `core/hooks/hooks.json` — WorktreeCreate and worktree-bash-fix registrations removed
 - `core/hooks/tests/run-all.sh` — runs every file, summarises failures
@@ -202,6 +202,7 @@ covered by stubbed-binary tests only and are not verified by execution here.
 - `core/skills/SKILLS_INVENTORY.md`, `core/MANIFEST.md`, `core/skills/uninstall/SKILL.md`, `core/skills/help-me/SKILL.md`, `llms.txt`, `docs/FRAMEWORK_REFERENCE.md`, `README.md`, `docs/reference/WORKFLOW.md` + scaffold, `core/hooks/README.md`, `CONTRIBUTING.md` — references, counts and claims aligned; the runtime claim qualified (parallel-work scripts are bash 3.2+; jq/python3 optional)
 - `.gitignore.framework` — `.mcp.json`, `.claude/worktrees/`
 - `.github/workflows/ci.yml` — (c13) shellcheck widened to skill scripts, hook lib and tests
+- `CHANGELOG.md` — the `[5.0.1]` entry's "cross-platform launcher" claim replaced with the per-arm reality: the word-discipline table in `docs/reference/PARALLEL_WORK.md` bans that word for this family, and the platform matrix there is what has actually been run
 
 ### Files added
 - `core/skills/parallel-work/scripts/merge-up-run.sh` — the one mutating step of /merge-up; verdicts and exit codes 0–7 (8 reserved)
@@ -209,6 +210,7 @@ covered by stubbed-binary tests only and are not verified by execution here.
 - `core/skills/parallel-work/references/messaging.md` — the four hints, addressing, delivery vocabulary and facts, watching
 - `core/skills/parallel-work/references/recovery.md` — symptom → cause → action
 - `core/hooks/tests/test-parallel-work-scripts.sh` — script suite (fixture path with a space and `#`; stubbed `claude`, `osascript`, `defaults`, `uname`, `wt.exe`, `wsl.exe`, `cygpath`)
+- `core/hooks/tests/test-parallel-work-launcher.sh` — launcher suite for `open-worktree-terminals.sh` (55 checks, groups `launcher` / `terminal` / `windows`): the knobs, quoting and hostile paths, the permission-class and unsafe-branch notes, the Terminal.app, iTerm2, Windows Terminal, WSL, gnome-terminal and konsole argv, the refusal paths and the manual-mode hints. Every run gets a private PATH of stubs (`osascript`, `uname`, `defaults`, `wt.exe`, `wsl.exe`, `cygpath`, `gnome-terminal`, `konsole`, `claude`) and a guard that refuses the whole run unless `EXOSUIT_WORKTREE_OSASCRIPT` names the stub: no terminal is opened and no claude session is started
 - `docs/reference/PARALLEL_WORK.md` — lifecycle, per-skill flows, message sequence, stream states, schema, platform matrix, honesty tables
 
 ### Files removed
@@ -293,9 +295,11 @@ Found during open-source flow testing (T06-001, T06-002).
   propagates gitignored local settings (`.env`, `.env.local`,
   `.claude/settings.local.json`, `CLAUDE.local.md`, `.mcp.json` with absolute
   paths rewritten; extend via `EXOSUIT_WORKTREE_COPY`), and offers to open each
-  stream in its own terminal tab running Claude Code (cross-platform launcher:
-  iTerm2 / Terminal.app / Windows Terminal / gnome-terminal / konsole; configure
-  with `EXOSUIT_WORKTREE_LAUNCH_CMD`, disable with `EXOSUIT_WORKTREE_TABS=0`).
+  stream in its own terminal tab running Claude Code (launcher arms for iTerm2,
+  Terminal.app, Windows Terminal, gnome-terminal and konsole — what has actually
+  been run per arm is the platform matrix in `docs/reference/PARALLEL_WORK.md`;
+  most arms are exercised through stubbed binaries only; configure with
+  `EXOSUIT_WORKTREE_LAUNCH_CMD`, disable with `EXOSUIT_WORKTREE_TABS=0`).
   `status` shows streams with parent and ahead/behind; `cleanup` removes fully
   merged streams (safe delete only). Parallel work is opt-in; sequential
   single-branch remains the default.
