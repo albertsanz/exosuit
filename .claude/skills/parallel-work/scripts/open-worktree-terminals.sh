@@ -28,7 +28,9 @@
 #   EXOSUIT_WORKTREE_FIRST_PROMPT   first prompt (default: /parallel-work hello);
 #                                   set but empty = no prompt and no --
 #   EXOSUIT_WORKTREE_NAME_SESSIONS  0 = no --name (default: 1)
-#   EXOSUIT_WORKTREE_TABS           0 = print the commands only, exit 0 (default: 1)
+#   EXOSUIT_WORKTREE_TABS           0 = print the commands only, exit 0 (default: 1);
+#                                   set but empty counts as 0, so a knob emptied
+#                                   by mistake never opens a window
 #   EXOSUIT_WORKTREE_OSASCRIPT      the AppleScript runner (default: the system
 #                                   osascript; tests stub it)
 #   EXOSUIT_WORKTREE_PROC_VERSION   test-only: the file whose contents decide
@@ -93,7 +95,11 @@ fi
 BASE_CMD="${EXOSUIT_WORKTREE_LAUNCH_CMD:-claude}"
 FIRST_PROMPT="${EXOSUIT_WORKTREE_FIRST_PROMPT-/parallel-work hello}"
 NAME_SESSIONS="${EXOSUIT_WORKTREE_NAME_SESSIONS:-1}"
-TABS="${EXOSUIT_WORKTREE_TABS:-1}"
+# Bare dash, not ':-': an explicitly emptied knob means the caller wanted
+# terminals off, and the failure mode of guessing otherwise is windows opening
+# on someone's desk. Unset still means 1.
+TABS="${EXOSUIT_WORKTREE_TABS-1}"
+[ -n "$TABS" ] || TABS=0
 OSASCRIPT="${EXOSUIT_WORKTREE_OSASCRIPT:-/usr/bin/osascript}"
 PROC_VERSION="${EXOSUIT_WORKTREE_PROC_VERSION:-/proc/version}"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}"

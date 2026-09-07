@@ -362,7 +362,14 @@ test_case "launcher-02 EXOSUIT_WORKTREE_TABS=0 -> one cd && claude --name -- pro
     "0:Open a terminal per worktree and run::  $(cmd_named "$DIR_A" sprint-x-a):  $(cmd_named "$DIR_B" sprint-x-b):3" \
     "$RC:$(line "$OUT" 1):$(line "$OUT" 2):$(line "$OUT" 3):$(nlines "$OUT")"
 
+# launcher-02b — a knob emptied by mistake must not open a window
+run_launcher EXOSUIT_WORKTREE_TABS= STUB_UNAME=Darwin TERM_PROGRAM=Apple_Terminal -- "$DIR_A"
+test_case "launcher-02b EXOSUIT_WORKTREE_TABS set but empty -> commands only, no opener called, exit 0" \
+    "0:Open a terminal per worktree and run::0" \
+    "$RC:$(line "$OUT" 1):$(osa_calls)"
+
 # launcher-03
+run_launcher EXOSUIT_WORKTREE_TABS=0 -- "$DIR_A" "$DIR_B"
 CMD_LINE=$(line "$OUT" 2)
 TAIL_AFTER_NAME=${CMD_LINE#*--name \'sprint-x-a\'}
 test_case "launcher-03 -- precedes the first prompt" \
